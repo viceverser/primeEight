@@ -1,14 +1,1 @@
-PrimeEight Windows runtime fix
-
-The previous workflow distributed a Debug build, which may require Microsoft's
-Debug C++ runtime libraries that ordinary Windows PCs do not have. This fix
-keeps Debug tests, but packages a separate Release CLAP using the static MSVC
-runtime (/MT). It also loads the Release plugin on the Windows CI runner.
-
-Copy the .github folder into your local PrimeEight repository, replacing the
-existing workflow. In GitHub Desktop, commit with Summary:
-Fix Windows CLAP runtime dependencies
-Then Push origin. Download the NEW Windows artifact after the green build.
-
-NOTE: The precise missing DLL on the user's computer has not been independently
-identified; this fixes the most likely cause of Windows LoadLibrary error 126.
+PrimeEight v128 MuLab diagnostic patch. Copy clap folder into the GitHub Desktop PrimeEight repository, replace existing file, commit and push. Download fresh Windows CLAP artifact and install. Close MuLab, delete any older PrimeEight_CLAP_Diagnostic.log in Win+R -> %TEMP%, start MuLab and attempt to insert plugin. Then Win+R -> %TEMP% and upload PrimeEight_CLAP_Diagnostic.log here. The log may include host name and local plugin path. Keep current REAPER-working binary as a backup. No logging from the real-time process() callback.

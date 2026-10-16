@@ -10,9 +10,27 @@
 #include <cmath>
 #include <memory>
 #include <new>
+#include <cstdarg>
+#include <mutex>
 
 namespace {
 using namespace primeeight;
+// Diagnostics only on CLAP lifecycle/metadata paths; never write from process().
+// A fresh line is flushed per call so a host abort leaves useful evidence.
+void trace(const char* fmt, ...){
+ static std::mutex lock;
+ std::lock_guard<std::mutex> guard(lock);
+ const char* temp=std::getenv("TEMP");
+ if(!temp || !*temp)temp=std::getenv("TMP");
+ if(!temp || !*temp)temp=".";
+ char path[1024]{};
+ std::snprintf(path,sizeof(path),"%s\\PrimeEight_CLAP_Diagnostic.log",temp);
+ FILE* file=std::fopen(path,"a");
+ if(!file)return;
+ va_list args;va_start(args,fmt);std::vfprintf(file,fmt,args);va_end(args);
+ std::fputc('\n',file);std::fclose(file);
+}
+
 constexpr const char* pluginId = "org.codeyvybez.primeeight";
 const char* features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, nullptr };
 const clap_plugin_descriptor_t descriptor = {CLAP_VERSION_INIT,pluginId,"PrimeEight","Codey Vybez","","","","0.100.0","Prime Time-inspired digital delay prototype",features};
@@ -53,16 +71,18 @@ void event(Instance* s,const clap_event_header_t* h,bool audioThread){
   if(audioThread)s->processor->set(id,v);
  }
 }
-uint32_t portCount(const clap_plugin_t*,bool){return 1;}
+uint32_t portCount(const clap_plugin_t*,bool input){trace("audio_ports.count input=%u",unsigned(input));return 1;}
 bool portGet(const clap_plugin_t*,uint32_t index,bool input,clap_audio_port_info_t* info){
+ trace("audio_ports.get index=%u input=%u",index,unsigned(input));
  if(index||!info)return false;
  std::memset(info,0,sizeof(*info));info->id=0;
  std::snprintf(info->name,sizeof(info->name),"%s",input?"Stereo Input":"Stereo Output");
  info->channel_count=2;info->flags=CLAP_AUDIO_PORT_IS_MAIN;info->port_type=CLAP_PORT_STEREO;info->in_place_pair=0;return true;
 }
 const clap_plugin_audio_ports_t ports={portCount,portGet};
-uint32_t paramCount(const clap_plugin_t*){return static_cast<uint32_t>(parameterInfo.size());}
+uint32_t paramCount(const clap_plugin_t*){trace("params.count");return static_cast<uint32_t>(parameterInfo.size());}
 bool paramInfo(const clap_plugin_t*,uint32_t index,clap_param_info_t* info){
+ trace("params.get_info index=%u",index);
  if(!info||index>=parameterInfo.size())return false;
  std::memset(info,0,sizeof(*info));const auto& p=parameterInfo[index];
  info->id=index;std::snprintf(info->name,sizeof(info->name),"%s",p.name);
@@ -122,19 +142,20 @@ bool load(const clap_plugin_t* plugin,const clap_istream_t* stream){
  return true;
 }
 const clap_plugin_state_t state={save,load};
-bool init(const clap_plugin_t*){return true;}
-void destroy(const clap_plugin_t* p){delete self(p);}
+bool init(const clap_plugin_t*){trace("plugin.init -> true");return true;}
+void destroy(const clap_plugin_t* p){trace("plugin.destroy");delete self(p);}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
+ trace("plugin.activate rate=%.2f min=%u max=%u",sampleRate,minFrames,maxFrames);
  auto* s=self(p);
  if(s->active||s->processing||!std::isfinite(sampleRate)||sampleRate<=0||maxFrames<minFrames||maxFrames>static_cast<uint32_t>(INT32_MAX))return false;
  s->sampleRate=sampleRate;s->maxFrames=maxFrames;
  auto next=std::make_unique<Processor>(sampleRate);
  for(uint32_t i=0;i<parameterInfo.size();++i)next->set(static_cast<Parameter>(i),s->published[i].load(std::memory_order_relaxed));
- s->processor=std::move(next);s->active=true;return true;
+ s->processor=std::move(next);s->active=true;trace("plugin.activate -> true");return true;
 }
-void deactivate(const clap_plugin_t* p){auto* s=self(p);s->processing=false;s->active=false;s->maxFrames=0;}
-bool start(const clap_plugin_t* p){auto* s=self(p);if(!s->active||s->processing)return false;s->processing=true;return true;}
-void stop(const clap_plugin_t* p){self(p)->processing=false;}
+void deactivate(const clap_plugin_t* p){trace("plugin.deactivate");auto* s=self(p);s->processing=false;s->active=false;s->maxFrames=0;}
+bool start(const clap_plugin_t* p){trace("plugin.start_processing");auto* s=self(p);if(!s->active||s->processing)return false;s->processing=true;return true;}
+void stop(const clap_plugin_t* p){trace("plugin.stop_processing");self(p)->processing=false;}
 void reset(const clap_plugin_t* p){auto* s=self(p);if(s->active && s->processor)s->processor->reset();}
 
 clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
@@ -199,6 +220,8 @@ clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
  return CLAP_PROCESS_CONTINUE;
 }
 const void* extension(const clap_plugin_t*,const char* id){
+ trace("plugin.get_extension %s",id?id:"(null)");
+ if(!id)return nullptr;
  if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))return &ports;
  if(!std::strcmp(id,CLAP_EXT_PARAMS))return &params;
  if(!std::strcmp(id,CLAP_EXT_STATE))return &state;
@@ -206,19 +229,20 @@ const void* extension(const clap_plugin_t*,const char* id){
 }
 void mainThread(const clap_plugin_t*){}
 const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host,const char* id){
+ trace("factory.create id=%s host=%s",id?id:"(null)",host&&host->name?host->name:"(null)");
  if(!host||!id||!clap_version_is_compatible(host->clap_version)||std::strcmp(id,pluginId))return nullptr;
  auto* s=new(std::nothrow) Instance(host);if(!s)return nullptr;
  s->plugin.desc=&descriptor;s->plugin.plugin_data=s;
  s->plugin.init=init;s->plugin.destroy=destroy;s->plugin.activate=activate;s->plugin.deactivate=deactivate;
  s->plugin.start_processing=start;s->plugin.stop_processing=stop;s->plugin.reset=reset;s->plugin.process=process;
  s->plugin.get_extension=extension;s->plugin.on_main_thread=mainThread;
- return &s->plugin;
+ trace("factory.create -> instance");return &s->plugin;
 }
-uint32_t count(const clap_plugin_factory_t*){return 1;}
-const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){return index==0?&descriptor:nullptr;}
+uint32_t count(const clap_plugin_factory_t*){trace("factory.count");return 1;}
+const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){trace("factory.describe index=%u",index);return index==0?&descriptor:nullptr;}
 const clap_plugin_factory_t factory={count,describe,create};
-bool entryInit(const char*){return true;}
-void entryDeinit(){}
-const void* getFactory(const char* id){return id&&!std::strcmp(id,CLAP_PLUGIN_FACTORY_ID)?&factory:nullptr;}
+bool entryInit(const char* path){trace("entry.init path=%s",path?path:"(null)");return true;}
+void entryDeinit(){trace("entry.deinit");}
+const void* getFactory(const char* id){trace("entry.get_factory id=%s",id?id:"(null)");return id&&!std::strcmp(id,CLAP_PLUGIN_FACTORY_ID)?&factory:nullptr;}
 }
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry={CLAP_VERSION_INIT,entryInit,entryDeinit,getFactory};
