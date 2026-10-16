@@ -19,9 +19,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure Debug tests
         shell: bash
-        run: cmake -S . -B build-debug -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S . -B build-debug -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug 2>&1 | tee debug-configure.log
       - name: Build Debug tests
-        run: cmake --build build-debug --config Debug --parallel 2
+        shell: bash
+        run: cmake --build build-debug --config Debug --parallel 2 2>&1 | tee debug-build.log
       - name: Configure distributable Release plugin
         shell: bash
         run: cmake -S . -B build-release -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
@@ -53,6 +54,8 @@ jobs:
         with:
           name: ${{ matrix.artifact }}-Debug-Diagnostics
           path: |
+            debug-configure.log
+            debug-build.log
             debug-ctest.log
             build-debug/Testing/Temporary/LastTest.log
             build-debug/Testing/Temporary/LastTestsFailed.log
