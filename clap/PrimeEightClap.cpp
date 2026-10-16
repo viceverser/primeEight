@@ -60,6 +60,9 @@ struct Instance {
  bool guiFloating=false;
  std::array<std::atomic<double>,parameterInfo.size()> guiPending{};
  std::atomic<uint32_t> guiDirty{0};
+ int dragParam=-1;
+ int dragY=0;
+ double dragStart=0;
 #endif
  std::array<std::atomic<double>,parameterInfo.size()> published{};
  explicit Instance(const clap_host_t* h):host(h),processor(new Processor(48000)){
@@ -202,6 +205,15 @@ void drawPanel(HDC dc,int x,int y,int w,int h){
  HPEN red=CreatePen(PS_SOLID,3,RGB(233,39,30));old=SelectObject(dc,red);
  MoveToEx(dc,x+2,y+2,nullptr);LineTo(dc,x+w-2,y+2);SelectObject(dc,old);DeleteObject(red);
 }
+void submitGuiValue(Instance* s,int idx,double value){
+ if(!s||idx<0||idx>=int(parameterInfo.size()))return;
+ value=canonical(uint32_t(idx),value);
+ s->guiPending[idx].store(value,std::memory_order_relaxed);
+ s->guiDirty.fetch_or(1u<<idx,std::memory_order_release);
+ const auto* hp=s->host&&s->host->get_extension?
+  static_cast<const clap_host_params_t*>(s->host->get_extension(s->host,CLAP_EXT_PARAMS)):nullptr;
+ if(hp&&hp->request_flush)hp->request_flush(s->host);
+}
 LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  auto* s=reinterpret_cast<Instance*>(GetWindowLongPtrA(hwnd,GWLP_USERDATA));
  if(msg==WM_NCCREATE){
@@ -229,7 +241,9 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
   for(const auto& c:uiControls){
    drawPanel(dc,c.x,c.y,c.w,c.h);
    SetTextColor(dc,RGB(216,214,205));label(dc,c.x+12,c.y+13,c.label);
-   double v=s?s->published[c.param].load(std::memory_order_relaxed):parameterInfo[c.param].initial;
+   double v=s?(s->guiDirty.load(std::memory_order_relaxed)&(1u<<c.param)?
+    s->guiPending[c.param].load(std::memory_order_relaxed):
+    s->published[c.param].load(std::memory_order_relaxed)):parameterInfo[c.param].initial;
    char val[64]{};
    if(c.param==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
    else if(c.param==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
@@ -246,21 +260,41 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  }
  if(msg==WM_LBUTTONDOWN||msg==WM_RBUTTONDOWN){
   if(!s)return 0;
-  int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
-  int idx=-1;
-  for(const auto& c:uiControls)if(x>=c.x&&x<c.x+c.w&&y>=c.y&&y<c.y+c.h){idx=c.param;break;}
-  if(idx<0)return 0;
+  const int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
+  for(const auto& c:uiControls)if(x>=c.x&&x<c.x+c.w&&y>=c.y&&y<c.y+c.h){
+   const int idx=c.param;
+   const auto& p=parameterInfo[idx];
+   const double old=s->guiDirty.load(std::memory_order_relaxed)&(1u<<idx)?
+    s->guiPending[idx].load(std::memory_order_relaxed):
+    s->published[idx].load(std::memory_order_relaxed);
+   if(idx==7){
+    submitGuiValue(s,idx,old>=0.5?0:1);
+   }else if(msg==WM_RBUTTONDOWN){
+    submitGuiValue(s,idx,p.initial);
+   }else{
+    s->dragParam=idx;s->dragY=y;s->dragStart=old;SetCapture(hwnd);
+    const double direction=x>=c.x+c.w/2?1.0:-1.0;
+    const double step=idx==0?1.0:(p.maximum-p.minimum)/100.0;
+    submitGuiValue(s,idx,old+direction*step);
+    s->dragStart=s->guiPending[idx].load(std::memory_order_relaxed);
+   }
+   InvalidateRect(hwnd,nullptr,FALSE);return 0;
+  }
+  return 0;
+ }
+ if(msg==WM_MOUSEMOVE&&s&&s->dragParam>=0&&(wp&MK_LBUTTON)){
+  const int idx=s->dragParam;
   const auto& p=parameterInfo[idx];
-  double v=s->published[idx].load(std::memory_order_relaxed);
-  double step=(idx==0||idx==7)?1.0:(p.maximum-p.minimum)/100.0;
-  v=std::clamp(v+(msg==WM_RBUTTONDOWN?-step:step),p.minimum,p.maximum);
-  if(idx==0||idx==7)v=std::round(v);
-  s->guiPending[idx].store(v,std::memory_order_relaxed);
-  s->guiDirty.fetch_or(1u<<idx,std::memory_order_release);
-  const auto* hostParams=s->host&&s->host->get_extension?
-   static_cast<const clap_host_params_t*>(s->host->get_extension(s->host,CLAP_EXT_PARAMS)):nullptr;
-  if(hostParams&&hostParams->request_flush)hostParams->request_flush(s->host);
+  const double pixels=double(s->dragY-GET_Y_LPARAM(lp));
+  const double delta=idx==0?std::round(pixels/35.0):
+   pixels*(p.maximum-p.minimum)/240.0;
+  submitGuiValue(s,idx,s->dragStart+delta);
   InvalidateRect(hwnd,nullptr,FALSE);return 0;
+ }
+ if(msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED){
+  if(s)s->dragParam=-1;
+  if(msg==WM_LBUTTONUP&&GetCapture()==hwnd)ReleaseCapture();
+  return 0;
  }
  return DefWindowProcA(hwnd,msg,wp,lp);
 }
@@ -381,6 +415,20 @@ clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
  // CLAP constant_mask marks input channels represented by a single sample.
  // We always render complete output buffers, so clear their constant flags.
  out.constant_mask=0;
+ // Deliver GUI-originated parameter changes through the process output event stream
+ // when the host does not call params.flush while audio is running.
+#ifdef _WIN32
+ const uint32_t guiChanges=s->guiDirty.exchange(0,std::memory_order_acq_rel);
+ for(uint32_t i=0;i<parameterInfo.size();++i)if(guiChanges&(1u<<i)){
+  clap_event_param_value_t ev{};
+  ev.header.size=sizeof(ev);ev.header.time=0;
+  ev.header.space_id=CLAP_CORE_EVENT_SPACE_ID;ev.header.type=CLAP_EVENT_PARAM_VALUE;
+  ev.param_id=i;ev.value=canonical(i,s->guiPending[i].load(std::memory_order_relaxed));
+  if(block->out_events&&block->out_events->try_push&&block->out_events->try_push(block->out_events,&ev.header)){
+   s->published[i].store(ev.value,std::memory_order_relaxed);
+  }else s->guiDirty.fetch_or(1u<<i,std::memory_order_release);
+ }
+#endif
  s->synchronize();
  // Cache constant inputs before any output writes: in-place output may overwrite sample zero.
  const uint64_t constantMask=in->constant_mask & 3u;
