@@ -18,6 +18,12 @@ add_test(NAME plugin_contract COMMAND primeeight_contract_test)
 # Never substitute an ABI guess for a loadable plugin.
 option(PRIMEEIGHT_BUILD_CLAP "Build CLAP adapter when official headers are installed" OFF)
 option(PRIMEEIGHT_BUILD_VST3 "Build VST3 adapter when Steinberg SDK is installed" OFF)
+# Embed the original SVG path data without rasterisation or runtime asset files.
+# Generated header lives in the build tree; original source artwork is never changed.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/GUI/assets/PrimeEight3.svg" PRIMEEIGHT_HEADING_SVG)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/GUI/assets/ape8-Ligh.svg" PRIMEEIGHT_LIGHT_LOGO_SVG)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/gui/PrimeEightEmbeddedArtwork.h.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h" @ONLY)
 # Experimental Surge-team JUCE/CLAP shim toolchain. Deliberately opt-in:
 # the existing native Win32 CLAP remains the distributable plugin.
 option(PRIMEEIGHT_BUILD_CLAP_JUCE_SHIM "Build the experimental Surge CLAP/JUCE shim library" OFF)
@@ -51,7 +57,7 @@ if(PRIMEEIGHT_BUILD_CLAP)
   target_sources(PrimeEight_CLAP PRIVATE gui/PrimeEightClapJuce.cpp)
   target_compile_features(PrimeEight_CLAP PRIVATE cxx_std_20)
   target_compile_definitions(PrimeEight_CLAP PRIVATE PRIMEEIGHT_USE_JUCE_SHIM=1)
-  target_include_directories(PrimeEight_CLAP PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/gui")
+  target_include_directories(PrimeEight_CLAP PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/gui" "${CMAKE_CURRENT_BINARY_DIR}")
   target_link_libraries(PrimeEight_CLAP PRIVATE sst::clap_juce_shim sst::clap_juce_shim_headers juce::juce_gui_basics)
  endif()
  target_include_directories(PrimeEight_CLAP PRIVATE "${PRIMEEIGHT_CLAP_INCLUDE_DIR}")
@@ -200,6 +206,7 @@ if(PRIMEEIGHT_BUILD_JUCE_PREVIEW)
  add_subdirectory("${PRIMEEIGHT_JUCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/juce")
  juce_add_gui_app(PrimeEight_JUCE_Preview VERSION 0.1.33 PRODUCT_NAME "PrimeEight JUCE Preview")
  target_sources(PrimeEight_JUCE_Preview PRIVATE gui/JuceEditorPreview.cpp)
+ target_include_directories(PrimeEight_JUCE_Preview PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
  target_compile_features(PrimeEight_JUCE_Preview PRIVATE cxx_std_17)
  target_compile_definitions(PrimeEight_JUCE_Preview PRIVATE
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
