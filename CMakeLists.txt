@@ -169,7 +169,7 @@ if(PRIMEEIGHT_BUILD_JUCE_PREVIEW)
   message(FATAL_ERROR "JUCE source missing: set PRIMEEIGHT_JUCE_DIR to a JUCE checkout")
  endif()
  add_subdirectory("${PRIMEEIGHT_JUCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/juce")
- juce_add_gui_app(PrimeEight_JUCE_Preview PRODUCT_NAME "PrimeEight JUCE Preview")
+ juce_add_gui_app(PrimeEight_JUCE_Preview VERSION 0.1.33 PRODUCT_NAME "PrimeEight JUCE Preview")
  target_sources(PrimeEight_JUCE_Preview PRIVATE gui/JuceEditorPreview.cpp)
  target_compile_features(PrimeEight_JUCE_Preview PRIVATE cxx_std_17)
  target_compile_definitions(PrimeEight_JUCE_Preview PRIVATE
