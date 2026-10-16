@@ -90,5 +90,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PrimeEight-JUCE-Windows-Preview
-          path: build-juce/**/PrimeEight_JUCE_Preview.exe
+          path: build-juce/**/PrimeEight JUCE Preview.exe
           if-no-files-found: error
