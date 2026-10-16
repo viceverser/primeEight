@@ -18,7 +18,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <windowsx.h>
-#include "../GUI/EmbeddedLogo.h"
 #endif
 
 namespace {
@@ -57,7 +56,6 @@ struct Instance {
  bool processing=false;
 #ifdef _WIN32
  HWND guiWindow=nullptr;
- std::unique_ptr<primeeight_gui::EmbeddedLogo> logo;
  bool guiCreated=false;
  bool guiFloating=false;
  std::array<std::atomic<double>,parameterInfo.size()> guiPending{};
@@ -234,7 +232,6 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
   SetTextColor(dc,RGB(232,218,195));label(dc,24,26,"Prime");
   SetTextColor(dc,RGB(237,48,37));label(dc,140,26,"Eight");
   SelectObject(dc,old);DeleteObject(headline);
-  if(s && s->logo) s->logo->draw(dc, 770, 12, 125, 90);
   SetTextColor(dc,RGB(184,182,175));label(dc,25,79,"A N A L O G   D E L A Y   P R O C E S S O R");
   SetTextColor(dc,RGB(237,75,47));label(dc,695,31,"PRIMEEIGHT");
   SetTextColor(dc,RGB(170,170,163));label(dc,695,55,"NATIVE CLAP EDITOR");
@@ -344,16 +341,12 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
   WS_POPUP,0,0,int(guiWidth),int(guiHeight),
   nullptr,nullptr,GetModuleHandleA(nullptr),s);
  if(!s->guiWindow){trace("gui.create Win32 error=%lu",GetLastError());return false;}
- HMODULE pluginModule=nullptr;
- if(GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-    reinterpret_cast<LPCSTR>(&editorProc), &pluginModule))
-   s->logo=std::make_unique<primeeight_gui::EmbeddedLogo>(pluginModule);
  s->guiCreated=true;s->guiFloating=false;return true;
 }
 void guiDestroy(const clap_plugin_t* p){
  auto* s=self(p);trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
  if(s->guiWindow)DestroyWindow(s->guiWindow);
- s->logo.reset();s->guiWindow=nullptr;s->guiCreated=false;
+ s->guiWindow=nullptr;s->guiCreated=false;
 }
 bool guiScale(const clap_plugin_t*,double scale){return std::isfinite(scale)&&scale>0;}
 bool guiSize(const clap_plugin_t* p,uint32_t* w,uint32_t* h){
