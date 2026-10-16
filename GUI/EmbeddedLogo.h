@@ -27,8 +27,13 @@ public:
     GlobalUnlock(buffer);
     IStream* stream = nullptr;
     if (CreateStreamOnHGlobal(buffer, TRUE, &stream) == S_OK) {
-      bitmap_.reset(Gdiplus::Bitmap::FromStream(stream));
-      if (bitmap_ && bitmap_->GetLastStatus() != Gdiplus::Ok) bitmap_.reset();
+      std::unique_ptr<Gdiplus::Bitmap> decoded(Gdiplus::Bitmap::FromStream(stream));
+      if (decoded && decoded->GetLastStatus() == Gdiplus::Ok) {
+        // Clone pixels before releasing the backing stream (GDI+ requires it alive).
+        bitmap_.reset(decoded->Clone(0, 0, decoded->GetWidth(), decoded->GetHeight(), Gdiplus::PixelFormat32bppARGB));
+        if (bitmap_ && bitmap_->GetLastStatus() != Gdiplus::Ok) bitmap_.reset();
+      }
+      decoded.reset();
       stream->Release();
     } else GlobalFree(buffer);
   }
