@@ -17,25 +17,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Configure (Debug, assertions enabled)
+      - name: Configure
         shell: bash
         run: cmake -S . -B build -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
       - name: Build
         run: cmake --build build --config Debug --parallel 2
       - name: Run native tests
         run: ctest --test-dir build -C Debug --output-on-failure
-      - name: Stage platform-specific plugin
-        shell: bash
-        run: |
-          cmake --install build --config Debug --prefix dist
-          ls -la dist
-          test -s dist/PrimeEight_CLAP.clap
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp WINDOWS_FIRST_BUILD.md dist/README.txt
-          fi
-      - name: Upload tested plugin
+      - name: Upload compiled CLAP directly
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/
+          path: build/**/PrimeEight_CLAP.clap
           if-no-files-found: error
