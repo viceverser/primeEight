@@ -254,7 +254,23 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
    old=SelectObject(dc,valueFont);SetTextColor(dc,RGB(246,72,43));
    label(dc,c.x+12,c.y+37,val);
    SelectObject(dc,old);DeleteObject(valueFont);
-   SetTextColor(dc,RGB(158,151,140));label(dc,c.x+c.w-80,c.y+c.h-22,"-     +");
+   // Flat vector dial: native GDI geometry, no gradients or textures.
+   const int cx=c.x+c.w-35,cy=c.y+42;
+   const auto& info=parameterInfo[c.param];
+   const double fraction=info.maximum>info.minimum?
+    std::clamp((v-info.minimum)/(info.maximum-info.minimum),0.0,1.0):0.0;
+   HPEN ring=CreatePen(PS_SOLID,3,RGB(92,91,86));
+   HGDIOBJ previous=SelectObject(dc,ring);
+   HGDIOBJ previousBrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
+   Ellipse(dc,cx-20,cy-20,cx+20,cy+20);
+   SelectObject(dc,previous);DeleteObject(ring);
+   HPEN pointer=CreatePen(PS_SOLID,4,RGB(242,71,44));
+   previous=SelectObject(dc,pointer);
+   const double angle=(135.0+270.0*fraction)*3.14159265358979323846/180.0;
+   MoveToEx(dc,cx,cy,nullptr);
+   LineTo(dc,cx+int(std::cos(angle)*16.0),cy+int(std::sin(angle)*16.0));
+   SelectObject(dc,previous);DeleteObject(pointer);
+   SelectObject(dc,previousBrush);
   }
   EndPaint(hwnd,&ps);return 0;
  }
