@@ -57,10 +57,16 @@ struct Instance {
  HWND guiWindow=nullptr;
  bool guiCreated=false;
  bool guiFloating=false;
+ std::array<std::atomic<double>,parameterInfo.size()> guiPending{};
+ std::atomic<uint32_t> guiDirty{0};
 #endif
  std::array<std::atomic<double>,parameterInfo.size()> published{};
  explicit Instance(const clap_host_t* h):host(h),processor(new Processor(48000)){
-  for(size_t i=0;i<parameterInfo.size();++i)published[i].store(parameterInfo[i].initial,std::memory_order_relaxed);
+  for(size_t i=0;i<parameterInfo.size();++i){published[i].store(parameterInfo[i].initial,std::memory_order_relaxed);
+#ifdef _WIN32
+ guiPending[i].store(parameterInfo[i].initial,std::memory_order_relaxed);
+#endif
+ }
  }
  void synchronize(){
   for(size_t i=0;i<parameterInfo.size();++i){
@@ -126,8 +132,21 @@ bool textValue(const clap_plugin_t*,clap_id id,const char* text,double* value){
  if(*end!='\0')return false;
  *value=canonical(id,v);return true;
 }
-void flush(const clap_plugin_t* plugin,const clap_input_events_t* in,const clap_output_events_t*){
- if(!in||!in->size||!in->get)return;for(uint32_t i=0;i<in->size(in);++i)event(self(plugin),in->get(in,i),false);
+void flush(const clap_plugin_t* plugin,const clap_input_events_t* in,const clap_output_events_t* out){
+ auto* s=self(plugin);
+ if(in&&in->size&&in->get)for(uint32_t i=0;i<in->size(in);++i)event(s,in->get(in,i),false);
+#ifdef _WIN32
+ const uint32_t dirty=s->guiDirty.exchange(0,std::memory_order_acq_rel);
+ for(uint32_t i=0;i<parameterInfo.size();++i)if(dirty&(1u<<i)){
+  const double value=s->guiPending[i].load(std::memory_order_relaxed);
+  clap_event_param_value_t ev{};
+  ev.header.size=sizeof(ev);ev.header.time=0;ev.header.space_id=CLAP_CORE_EVENT_SPACE_ID;
+  ev.header.type=CLAP_EVENT_PARAM_VALUE;ev.param_id=i;ev.value=value;
+  if(out&&out->try_push&&out->try_push(out,&ev.header))
+   s->published[i].store(value,std::memory_order_relaxed);
+  else s->guiDirty.fetch_or(1u<<i,std::memory_order_release);
+ }
+#endif
 }
 const clap_plugin_params_t params={paramCount,paramInfo,paramValue,valueText,textValue,flush};
 bool save(const clap_plugin_t* plugin,const clap_ostream_t* stream){
@@ -161,7 +180,77 @@ const clap_plugin_state_t state={save,load};
 #ifdef _WIN32
 // Minimal native Win32 CLAP editor for MuLab host-compatibility diagnosis.
 // This is a real embeddable HWND, not a claimed GUI with no window.
-constexpr uint32_t guiWidth=420,guiHeight=170;
+constexpr uint32_t guiWidth=780,guiHeight=510;
+constexpr int controlX=28,controlY=110,controlW=344,controlH=58;
+const char* uiLabels[]={"MULTIPLY","TAP A TIME","TAP B TIME","TAP A LEVEL","TAP B LEVEL","FEEDBACK","MIX","REPEAT HOLD","MOD RATE","MOD DEPTH","SMOOTHING"};
+LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
+ auto* s=reinterpret_cast<Instance*>(GetWindowLongPtrA(hwnd,GWLP_USERDATA));
+ if(msg==WM_NCCREATE){
+  auto* cs=reinterpret_cast<CREATESTRUCTA*>(lp);
+  SetWindowLongPtrA(hwnd,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+  return TRUE;
+ }
+ if(msg==WM_ERASEBKGND)return 1;
+ if(msg==WM_PAINT){
+  PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);
+  RECT rect{};GetClientRect(hwnd,&rect);
+  HBRUSH bg=CreateSolidBrush(RGB(23,29,34));FillRect(dc,&rect,bg);DeleteObject(bg);
+  SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(235,228,204));
+  HFONT font=CreateFontA(34,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
+  HGDIOBJ prev=SelectObject(dc,font);
+  TextOutA(dc,28,20,"PRIMEEIGHT",10);
+  SelectObject(dc,prev);DeleteObject(font);
+  SetTextColor(dc,RGB(154,183,180));
+  TextOutA(dc,30,66,"DIGITAL DELAY  /  1x 2x 4x 8x",32);
+  for(int i=0;i<11;i++){
+   int col=i/6,row=i%6;
+   int x=controlX+col*386,y=controlY+row*62;
+   if(col==1){row=i-6;y=controlY+row*62;}
+   RECT box{x,y,x+344,y+52};
+   HBRUSH fill=CreateSolidBrush(RGB(38,47,53));FillRect(dc,&box,fill);DeleteObject(fill);
+   SetTextColor(dc,RGB(186,205,204));TextOutA(dc,x+12,y+8,uiLabels[i],int(std::strlen(uiLabels[i])));
+   if(s){
+    double v=s->published[i].load(std::memory_order_relaxed);
+    char val[48];if(i==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
+    else if(i==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
+    else std::snprintf(val,sizeof(val),"%.2f",v);
+    SetTextColor(dc,RGB(243,215,131));TextOutA(dc,x+230,y+8,val,int(std::strlen(val)));
+   }
+   SetTextColor(dc,RGB(139,156,155));
+   TextOutA(dc,x+12,y+31,"-   click left / right   +",26);
+  }
+  EndPaint(hwnd,&ps);return 0;
+ }
+ if(msg==WM_LBUTTONDOWN||msg==WM_RBUTTONDOWN){
+  if(!s)return 0;
+  int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
+  int col=x>=414?1:0;
+  int idx=col*6+(y-controlY)/62;
+  int left=controlX+col*386;
+  if(y<controlY||idx>=11||x<left||x>=left+344||(y-controlY)%62>=52)return 0;
+  const auto& p=parameterInfo[idx];
+  double v=s->published[idx].load(std::memory_order_relaxed);
+  double step=(idx==0||idx==7)?1.0:(p.maximum-p.minimum)/100.0;
+  v=std::clamp(v+(msg==WM_RBUTTONDOWN?-step:step),p.minimum,p.maximum);
+  if(idx==0||idx==7)v=std::round(v);
+  s->guiPending[idx].store(v,std::memory_order_relaxed);
+  s->guiDirty.fetch_or(1u<<idx,std::memory_order_release);
+  const auto* hostParams=s->host&&s->host->get_extension?
+   static_cast<const clap_host_params_t*>(s->host->get_extension(s->host,CLAP_EXT_PARAMS)):nullptr;
+  if(hostParams&&hostParams->request_flush)hostParams->request_flush(s->host);
+  InvalidateRect(hwnd,nullptr,FALSE);return 0;
+ }
+ return DefWindowProcA(hwnd,msg,wp,lp);
+}
+const char* editorClass="PrimeEightV133Editor";
+bool registerEditor(){
+ static ATOM cls=[](){
+  WNDCLASSA wc{};wc.lpfnWndProc=editorProc;wc.hInstance=GetModuleHandleA(nullptr);
+  wc.lpszClassName=editorClass;wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
+  return RegisterClassA(&wc);
+ }();
+ return cls!=0||GetLastError()==ERROR_CLASS_ALREADY_EXISTS;
+}
 bool guiSupported(const clap_plugin_t*,const char* api,bool floating){
  return !floating && api && std::strcmp(api,CLAP_WINDOW_API_WIN32)==0;
 }
@@ -175,9 +264,10 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  if(s->guiCreated||!guiSupported(p,api,floating))return false;
  // The host supplies its parent later through set_parent(). Create a hidden
  // top-level window first; Win32 rejects WS_CHILD with no parent.
- s->guiWindow=CreateWindowExA(0,"STATIC","PrimeEight - CLAP compatibility editor",
-  WS_POPUP|SS_CENTER|SS_CENTERIMAGE,0,0,int(guiWidth),int(guiHeight),
-  nullptr,nullptr,GetModuleHandleA(nullptr),nullptr);
+ if(!registerEditor())return false;
+ s->guiWindow=CreateWindowExA(0,editorClass,"PrimeEight",
+  WS_POPUP,0,0,int(guiWidth),int(guiHeight),
+  nullptr,nullptr,GetModuleHandleA(nullptr),s);
  if(!s->guiWindow){trace("gui.create Win32 error=%lu",GetLastError());return false;}
  s->guiCreated=true;s->guiFloating=false;return true;
 }
