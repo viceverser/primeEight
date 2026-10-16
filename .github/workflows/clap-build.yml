@@ -1,0 +1,42 @@
+name: PrimeEight CLAP builds
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            artifact: PrimeEight-Windows-x64-CLAP
+          - os: ubuntu-24.04
+            artifact: PrimeEight-Linux-x64-CLAP
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Debug, assertions enabled)
+        shell: bash
+        run: cmake -S . -B build -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build --config Debug --parallel 2
+      - name: Run native tests
+        run: ctest --test-dir build -C Debug --output-on-failure
+      - name: Stage platform-specific plugin
+        shell: bash
+        run: |
+          mkdir -p dist
+          find build -type f -name 'PrimeEight_CLAP.clap' -exec cp '{}' dist/ \;
+          test -s dist/PrimeEight_CLAP.clap
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            file dist/PrimeEight_CLAP.clap || true
+            cp WINDOWS_FIRST_BUILD.md dist/README.txt
+          fi
+      - name: Upload tested plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
