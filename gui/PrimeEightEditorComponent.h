@@ -1,31 +1,41 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <memory>
+#include "PrimeEightEmbeddedArtwork.h"
 
-// Reusable JUCE component: no standalone application or CLAP lifecycle ownership.
-// The CLAP bridge can instantiate this component through an editor provider.
+// Reusable vector editor; original Inkscape SVG assets remain untouched.
 class PrimeEightEditorComponent final : public juce::Component
 {
 public:
     static constexpr int editorWidth = 940;
     static constexpr int editorHeight = 490;
-
-    PrimeEightEditorComponent() { setSize(editorWidth, editorHeight); }
+    PrimeEightEditorComponent()
+    {
+        setSize(editorWidth, editorHeight);
+        auto headingXml = juce::parseXML(juce::String::fromUTF8(primeEightHeadingSvg));
+        auto logoXml = juce::parseXML(juce::String::fromUTF8(primeEightLightLogoSvg));
+        if (headingXml) heading = juce::Drawable::createFromSVG(*headingXml);
+        if (logoXml) logo = juce::Drawable::createFromSVG(*logoXml);
+    }
 
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colour::fromRGB(14, 15, 15));
-        g.setColour(juce::Colour::fromRGB(232, 218, 195));
-        g.setFont(juce::FontOptions(39.0f, juce::Font::bold));
-        g.drawText("Prime", 24, 22, 135, 52, juce::Justification::centredLeft);
-        g.setColour(juce::Colour::fromRGB(237, 48, 37));
-        g.drawText("Eight", 140, 22, 180, 52, juce::Justification::centredLeft);
-        g.setColour(juce::Colour::fromRGB(184, 182, 175));
+        // Both source SVGs are tightly cropped; margins are defined here.
+        constexpr float margin = 26.0f;
+        if (heading)
+            heading->drawWithin(g, {margin, 24.0f, 480.0f, 124.0f},
+                                juce::RectanglePlacement::centredLeft, 1.0f);
+        if (logo)
+            logo->drawWithin(g, {editorWidth - margin - 112.0f, 22.0f, 112.0f, 125.0f},
+                             juce::RectanglePlacement::centred, 1.0f);
+
+        g.setColour(juce::Colour::fromRGB(97, 93, 87));
+        g.drawRoundedRectangle({margin, 166.0f, editorWidth - 2.0f * margin, 296.0f}, 7.0f, 1.0f);
+        g.setColour(juce::Colour::fromRGB(240, 221, 198));
         g.setFont(juce::FontOptions(14.0f));
-        g.drawText("A N A L O G   D E L A Y   P R O C E S S O R",
-                   25, 79, 620, 22, juce::Justification::centredLeft);
-        g.setColour(juce::Colour::fromRGB(113, 109, 102));
-        g.drawRect(24, 112, 892, 48);
-        g.setColour(juce::Colour::fromRGB(223, 215, 202));
-        g.drawText("DELAY ENGINE", 39, 122, 240, 28, juce::Justification::centredLeft);
+        g.drawText("DELAY ENGINE", 42, 177, 260, 25, juce::Justification::centredLeft);
     }
+private:
+    std::unique_ptr<juce::Drawable> heading, logo;
 };
