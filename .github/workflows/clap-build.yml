@@ -27,11 +27,10 @@ jobs:
       - name: Stage platform-specific plugin
         shell: bash
         run: |
-          mkdir -p dist
-          find build -type f -name 'PrimeEight_CLAP.clap' -exec cp '{}' dist/ \;
+          cmake --install build --config Debug --prefix dist
+          ls -la dist
           test -s dist/PrimeEight_CLAP.clap
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            file dist/PrimeEight_CLAP.clap || true
             cp WINDOWS_FIRST_BUILD.md dist/README.txt
           fi
       - name: Upload tested plugin

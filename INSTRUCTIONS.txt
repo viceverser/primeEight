@@ -1,0 +1,9 @@
+PrimeEight Windows CLAP staging fix (v126)
+
+In your cloned PrimeEight repository folder, replace CMakeLists.txt and .github/workflows/clap-build.yml with the two files from this package (preserve folders).
+
+In GitHub Desktop: Summary: Fix Windows CLAP artifact staging; click Commit to main, then Push origin.
+
+GitHub Actions will run automatically on push. Open Actions and inspect the new run.
+
+This patch fixes a likely packaging problem; Windows success is not yet confirmed.
