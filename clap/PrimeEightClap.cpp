@@ -38,7 +38,8 @@ void trace(const char* fmt, ...){
 }
 
 constexpr const char* pluginId = "org.codeyvybez.primeeight";
-const char* features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, nullptr };
+// MuLab A/B trial: advertise only the required effect category; retain stereo ports.
+const char* features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, nullptr };
 const clap_plugin_descriptor_t descriptor = {CLAP_VERSION_INIT,pluginId,"PrimeEight","Codey Vybez","","","","0.100.0","Prime Time-inspired digital delay prototype",features};
 struct Instance {
  uint64_t serial=0;
@@ -249,7 +250,7 @@ const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host
  trace("factory.create -> instance=%llu",static_cast<unsigned long long>(s->serial));return &s->plugin;
 }
 uint32_t count(const clap_plugin_factory_t*){trace("factory.count");return 1;}
-const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){trace("factory.describe index=%u id=%s features=audio-effect,stereo",index,pluginId);return index==0?&descriptor:nullptr;}
+const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){trace("factory.describe index=%u id=%s features=audio-effect",index,pluginId);return index==0?&descriptor:nullptr;}
 const clap_plugin_factory_t factory={count,describe,create};
 bool entryInit(const char* path){trace("entry.init path=%s",path?path:"(null)");return true;}
 void entryDeinit(){trace("entry.deinit");}
