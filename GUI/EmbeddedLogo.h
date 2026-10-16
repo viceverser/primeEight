@@ -11,14 +11,14 @@ class EmbeddedLogo {
   ULONG_PTR token_ = 0;
   std::unique_ptr<Gdiplus::Bitmap> bitmap_;
 public:
-  EmbeddedLogo() {
+  explicit EmbeddedLogo(HMODULE module) {
     Gdiplus::GdiplusStartupInput input;
     if (Gdiplus::GdiplusStartup(&token_, &input, nullptr) != Gdiplus::Ok) return;
-    HRSRC resource = FindResourceW(nullptr, MAKEINTRESOURCEW(101), L"PNG");
+    HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(101), L"PNG");
     if (!resource) return;
-    HGLOBAL loaded = LoadResource(nullptr, resource);
+    HGLOBAL loaded = LoadResource(module, resource);
     if (!loaded) return;
-    const DWORD size = SizeofResource(nullptr, resource);
+    const DWORD size = SizeofResource(module, resource);
     HGLOBAL buffer = GlobalAlloc(GMEM_MOVEABLE, size);
     if (!buffer) return;
     void* dst = GlobalLock(buffer);
