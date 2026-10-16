@@ -1,4 +1,7 @@
 #include <clap/clap.h>
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+#include "PrimeEightClapJuce.h"
+#endif
 #include "PluginContract.h"
 #include <algorithm>
 #include <atomic>
@@ -55,11 +58,17 @@ struct Instance {
  bool active=false;
  bool processing=false;
 #ifdef _WIN32
+ #ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ PrimeEightJuceBridge* juceBridge=nullptr;
+ #endif
  HWND guiWindow=nullptr;
  bool guiCreated=false;
  bool guiFloating=false;
  std::array<std::atomic<double>,parameterInfo.size()> guiPending{};
  std::atomic<uint32_t> guiDirty{0};
+ int dragParam=-1;
+ int dragY=0;
+ double dragStart=0;
 #endif
  std::array<std::atomic<double>,parameterInfo.size()> published{};
  explicit Instance(const clap_host_t* h):host(h),processor(new Processor(48000)){
@@ -181,9 +190,36 @@ const clap_plugin_state_t state={save,load};
 #ifdef _WIN32
 // Minimal native Win32 CLAP editor for MuLab host-compatibility diagnosis.
 // This is a real embeddable HWND, not a claimed GUI with no window.
-constexpr uint32_t guiWidth=780,guiHeight=510;
-constexpr int controlX=28,controlY=110,controlW=344,controlH=58;
-const char* uiLabels[]={"MULTIPLY","TAP A TIME","TAP B TIME","TAP A LEVEL","TAP B LEVEL","FEEDBACK","MIX","REPEAT HOLD","MOD RATE","MOD DEPTH","SMOOTHING"};
+// Functional native editor based on the approved flat PrimeEight panel.
+constexpr uint32_t guiWidth=940,guiHeight=490;
+struct UiControl {int x,y,w,h;int param;const char* label;};
+constexpr UiControl uiControls[]={
+ {24,174,210,88,1,"TAP A TIME"}, {24,276,210,88,2,"TAP B TIME"},
+ {248,174,210,88,5,"FEEDBACK"}, {248,276,210,88,7,"REPEAT HOLD"},
+ {472,174,210,88,9,"MOD DEPTH"}, {472,276,210,88,8,"MOD RATE"},
+ {696,174,220,88,6,"MIX"}, {696,276,220,88,10,"SMOOTHING"},
+ {24,390,210,70,0,"MULTIPLY"}, {248,390,210,70,3,"TAP A LEVEL"},
+ {472,390,210,70,4,"TAP B LEVEL"}
+};
+void label(HDC dc,int x,int y,const char* t){TextOutA(dc,x,y,t,int(std::strlen(t)));}
+void drawPanel(HDC dc,int x,int y,int w,int h){
+ RECT r{x,y,x+w,y+h};HBRUSH fill=CreateSolidBrush(RGB(19,20,20));
+ FillRect(dc,&r,fill);DeleteObject(fill);
+ HPEN edge=CreatePen(PS_SOLID,1,RGB(113,109,102));
+ HGDIOBJ old=SelectObject(dc,edge);SelectObject(dc,GetStockObject(NULL_BRUSH));
+ Rectangle(dc,x,y,x+w,y+h);SelectObject(dc,old);DeleteObject(edge);
+ HPEN red=CreatePen(PS_SOLID,3,RGB(233,39,30));old=SelectObject(dc,red);
+ MoveToEx(dc,x+2,y+2,nullptr);LineTo(dc,x+w-2,y+2);SelectObject(dc,old);DeleteObject(red);
+}
+void submitGuiValue(Instance* s,int idx,double value){
+ if(!s||idx<0||idx>=int(parameterInfo.size()))return;
+ value=canonical(uint32_t(idx),value);
+ s->guiPending[idx].store(value,std::memory_order_relaxed);
+ s->guiDirty.fetch_or(1u<<idx,std::memory_order_release);
+ const auto* hp=s->host&&s->host->get_extension?
+  static_cast<const clap_host_params_t*>(s->host->get_extension(s->host,CLAP_EXT_PARAMS)):nullptr;
+ if(hp&&hp->request_flush)hp->request_flush(s->host);
+}
 LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  auto* s=reinterpret_cast<Instance*>(GetWindowLongPtrA(hwnd,GWLP_USERDATA));
  if(msg==WM_NCCREATE){
@@ -194,54 +230,93 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  if(msg==WM_ERASEBKGND)return 1;
  if(msg==WM_PAINT){
   PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);
-  RECT rect{};GetClientRect(hwnd,&rect);
-  HBRUSH bg=CreateSolidBrush(RGB(23,29,34));FillRect(dc,&rect,bg);DeleteObject(bg);
-  SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(235,228,204));
-  HFONT font=CreateFontA(34,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
-  HGDIOBJ prev=SelectObject(dc,font);
-  TextOutA(dc,28,20,"PRIMEEIGHT",10);
-  SelectObject(dc,prev);DeleteObject(font);
-  SetTextColor(dc,RGB(154,183,180));
-  const char* subtitle="DIGITAL DELAY  /  1x 2x 4x 8x";
-  TextOutA(dc,30,66,subtitle,int(std::strlen(subtitle)));
-  for(int i=0;i<11;i++){
-   int col=i/6,row=i%6;
-   int x=controlX+col*386,y=controlY+row*62;
-   if(col==1){row=i-6;y=controlY+row*62;}
-   RECT box{x,y,x+344,y+52};
-   HBRUSH fill=CreateSolidBrush(RGB(38,47,53));FillRect(dc,&box,fill);DeleteObject(fill);
-   SetTextColor(dc,RGB(186,205,204));TextOutA(dc,x+12,y+8,uiLabels[i],int(std::strlen(uiLabels[i])));
-   if(s){
-    double v=s->published[i].load(std::memory_order_relaxed);
-    char val[48];if(i==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
-    else if(i==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
-    else std::snprintf(val,sizeof(val),"%.2f",v);
-    SetTextColor(dc,RGB(243,215,131));TextOutA(dc,x+230,y+8,val,int(std::strlen(val)));
-   }
-   SetTextColor(dc,RGB(139,156,155));
-   const char* hint="-   click left / right   +";
-   TextOutA(dc,x+12,y+31,hint,int(std::strlen(hint)));
+  RECT r{};GetClientRect(hwnd,&r);
+  HBRUSH bg=CreateSolidBrush(RGB(14,15,15));FillRect(dc,&r,bg);DeleteObject(bg);
+  SetBkMode(dc,TRANSPARENT);
+  HFONT headline=CreateFontA(39,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
+  HGDIOBJ old=SelectObject(dc,headline);
+  SetTextColor(dc,RGB(232,218,195));label(dc,24,26,"Prime");
+  SetTextColor(dc,RGB(237,48,37));label(dc,140,26,"Eight");
+  SelectObject(dc,old);DeleteObject(headline);
+  SetTextColor(dc,RGB(184,182,175));label(dc,25,79,"A N A L O G   D E L A Y   P R O C E S S O R");
+  SetTextColor(dc,RGB(237,75,47));label(dc,695,31,"PRIMEEIGHT");
+  SetTextColor(dc,RGB(170,170,163));label(dc,695,55,"NATIVE CLAP EDITOR");
+  drawPanel(dc,24,112,892,48);
+  SetTextColor(dc,RGB(223,215,202));label(dc,39,127,"DELAY ENGINE");
+  SetTextColor(dc,RGB(239,73,42));label(dc,405,127,"1x     2x     4x     8x");
+  for(const auto& c:uiControls){
+   drawPanel(dc,c.x,c.y,c.w,c.h);
+   SetTextColor(dc,RGB(216,214,205));label(dc,c.x+12,c.y+13,c.label);
+   double v=s?(s->guiDirty.load(std::memory_order_relaxed)&(1u<<c.param)?
+    s->guiPending[c.param].load(std::memory_order_relaxed):
+    s->published[c.param].load(std::memory_order_relaxed)):parameterInfo[c.param].initial;
+   char val[64]{};
+   if(c.param==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
+   else if(c.param==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
+   else if(c.param==1||c.param==2||c.param==9||c.param==10)std::snprintf(val,sizeof(val),"%.1f ms",v);
+   else if(c.param==8)std::snprintf(val,sizeof(val),"%.2f Hz",v);
+   else std::snprintf(val,sizeof(val),"%.2f",v);
+   HFONT valueFont=CreateFontA(24,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
+   old=SelectObject(dc,valueFont);SetTextColor(dc,RGB(246,72,43));
+   label(dc,c.x+12,c.y+37,val);
+   SelectObject(dc,old);DeleteObject(valueFont);
+   // Flat vector dial: native GDI geometry, no gradients or textures.
+   const int cx=c.x+c.w-35,cy=c.y+42;
+   const auto& info=parameterInfo[c.param];
+   const double fraction=info.maximum>info.minimum?
+    std::clamp((v-info.minimum)/(info.maximum-info.minimum),0.0,1.0):0.0;
+   HPEN ring=CreatePen(PS_SOLID,3,RGB(92,91,86));
+   HGDIOBJ previous=SelectObject(dc,ring);
+   HGDIOBJ previousBrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
+   Ellipse(dc,cx-20,cy-20,cx+20,cy+20);
+   SelectObject(dc,previous);DeleteObject(ring);
+   HPEN pointer=CreatePen(PS_SOLID,4,RGB(242,71,44));
+   previous=SelectObject(dc,pointer);
+   const double angle=(135.0+270.0*fraction)*3.14159265358979323846/180.0;
+   MoveToEx(dc,cx,cy,nullptr);
+   LineTo(dc,cx+int(std::cos(angle)*16.0),cy+int(std::sin(angle)*16.0));
+   SelectObject(dc,previous);DeleteObject(pointer);
+   SelectObject(dc,previousBrush);
   }
   EndPaint(hwnd,&ps);return 0;
  }
  if(msg==WM_LBUTTONDOWN||msg==WM_RBUTTONDOWN){
   if(!s)return 0;
-  int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
-  int col=x>=414?1:0;
-  int idx=col*6+(y-controlY)/62;
-  int left=controlX+col*386;
-  if(y<controlY||idx>=11||x<left||x>=left+344||(y-controlY)%62>=52)return 0;
+  const int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
+  for(const auto& c:uiControls)if(x>=c.x&&x<c.x+c.w&&y>=c.y&&y<c.y+c.h){
+   const int idx=c.param;
+   const auto& p=parameterInfo[idx];
+   const double old=s->guiDirty.load(std::memory_order_relaxed)&(1u<<idx)?
+    s->guiPending[idx].load(std::memory_order_relaxed):
+    s->published[idx].load(std::memory_order_relaxed);
+   if(idx==7){
+    submitGuiValue(s,idx,old>=0.5?0:1);
+   }else if(msg==WM_RBUTTONDOWN){
+    submitGuiValue(s,idx,p.initial);
+   }else{
+    s->dragParam=idx;s->dragY=y;s->dragStart=old;SetCapture(hwnd);
+    const double direction=x>=c.x+c.w/2?1.0:-1.0;
+    const double step=idx==0?1.0:(p.maximum-p.minimum)/100.0;
+    submitGuiValue(s,idx,old+direction*step);
+    s->dragStart=s->guiPending[idx].load(std::memory_order_relaxed);
+   }
+   InvalidateRect(hwnd,nullptr,FALSE);return 0;
+  }
+  return 0;
+ }
+ if(msg==WM_MOUSEMOVE&&s&&s->dragParam>=0&&(wp&MK_LBUTTON)){
+  const int idx=s->dragParam;
   const auto& p=parameterInfo[idx];
-  double v=s->published[idx].load(std::memory_order_relaxed);
-  double step=(idx==0||idx==7)?1.0:(p.maximum-p.minimum)/100.0;
-  v=std::clamp(v+(msg==WM_RBUTTONDOWN?-step:step),p.minimum,p.maximum);
-  if(idx==0||idx==7)v=std::round(v);
-  s->guiPending[idx].store(v,std::memory_order_relaxed);
-  s->guiDirty.fetch_or(1u<<idx,std::memory_order_release);
-  const auto* hostParams=s->host&&s->host->get_extension?
-   static_cast<const clap_host_params_t*>(s->host->get_extension(s->host,CLAP_EXT_PARAMS)):nullptr;
-  if(hostParams&&hostParams->request_flush)hostParams->request_flush(s->host);
+  const double pixels=double(s->dragY-GET_Y_LPARAM(lp));
+  const double delta=idx==0?std::round(pixels/35.0):
+   pixels*(p.maximum-p.minimum)/240.0;
+  submitGuiValue(s,idx,s->dragStart+delta);
   InvalidateRect(hwnd,nullptr,FALSE);return 0;
+ }
+ if(msg==WM_LBUTTONUP||msg==WM_CAPTURECHANGED){
+  if(s)s->dragParam=-1;
+  if(msg==WM_LBUTTONUP&&GetCapture()==hwnd)ReleaseCapture();
+  return 0;
  }
  return DefWindowProcA(hwnd,msg,wp,lp);
 }
@@ -263,6 +338,11 @@ bool guiPreferred(const clap_plugin_t*,const char** api,bool* floating){
 }
 bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  auto* s=self(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ if(!s->juceBridge)s->juceBridge=primeeightJuceBridgeCreate();
+ if(!primeeightJuceGuiCreate(s->juceBridge,api,floating))return false;
+ s->guiCreated=true;return true;
+#endif
  trace("gui.create instance=%llu api=%s floating=%u",static_cast<unsigned long long>(s->serial),api?api:"(null)",unsigned(floating));
  if(s->guiCreated||!guiSupported(p,api,floating))return false;
  // The host supplies its parent later through set_parent(). Create a hidden
@@ -275,12 +355,23 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  s->guiCreated=true;s->guiFloating=false;return true;
 }
 void guiDestroy(const clap_plugin_t* p){
- auto* s=self(p);trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
+ auto* s=self(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ primeeightJuceGuiDestroy(s->juceBridge);s->guiCreated=false;return;
+#endif
+ trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
  if(s->guiWindow)DestroyWindow(s->guiWindow);
  s->guiWindow=nullptr;s->guiCreated=false;
 }
-bool guiScale(const clap_plugin_t*,double scale){return std::isfinite(scale)&&scale>0;}
+bool guiScale(const clap_plugin_t* p,double scale){
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiScale(self(p)->juceBridge,scale);
+#endif
+return std::isfinite(scale)&&scale>0;}
 bool guiSize(const clap_plugin_t* p,uint32_t* w,uint32_t* h){
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiSize(self(p)->juceBridge,w,h);
+#endif
  if(!self(p)->guiCreated||!w||!h)return false;
  *w=guiWidth;*h=guiHeight;return true;
 }
@@ -290,10 +381,16 @@ bool guiAdjust(const clap_plugin_t*,uint32_t* w,uint32_t* h){
  if(!w||!h)return false;*w=guiWidth;*h=guiHeight;return true;
 }
 bool guiSetSize(const clap_plugin_t* p,uint32_t w,uint32_t h){
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiSetSize(self(p)->juceBridge,w,h);
+#endif
  return self(p)->guiCreated&&w==guiWidth&&h==guiHeight;
 }
 bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
  auto* s=self(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiParent(s->juceBridge,parent);
+#endif
  trace("gui.set_parent instance=%llu api=%s",static_cast<unsigned long long>(s->serial),parent&&parent->api?parent->api:"(null)");
  if(!s->guiCreated||!s->guiWindow||!parent||!parent->api||
   std::strcmp(parent->api,CLAP_WINDOW_API_WIN32)||!parent->win32)return false;
@@ -316,12 +413,20 @@ bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
 bool guiTransient(const clap_plugin_t*,const clap_window_t*){return false;}
 void guiTitle(const clap_plugin_t*,const char*){}
 bool guiShow(const clap_plugin_t* p){
- auto* s=self(p);trace("gui.show instance=%llu",static_cast<unsigned long long>(s->serial));
+ auto* s=self(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiShow(s->juceBridge);
+#endif
+ trace("gui.show instance=%llu",static_cast<unsigned long long>(s->serial));
  if(!s->guiCreated||!s->guiWindow)return false;
  ShowWindow(s->guiWindow,SW_SHOW);return true;
 }
 bool guiHide(const clap_plugin_t* p){
- auto* s=self(p);trace("gui.hide instance=%llu",static_cast<unsigned long long>(s->serial));
+ auto* s=self(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ return primeeightJuceGuiHide(s->juceBridge);
+#endif
+ trace("gui.hide instance=%llu",static_cast<unsigned long long>(s->serial));
  if(!s->guiCreated||!s->guiWindow)return false;
  ShowWindow(s->guiWindow,SW_HIDE);return true;
 }
@@ -333,6 +438,9 @@ bool init(const clap_plugin_t* p){trace("plugin.init instance=%llu -> true host=
 void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy instance=%llu active=%u processing=%u",static_cast<unsigned long long>(s->serial),unsigned(s->active),unsigned(s->processing));
 #ifdef _WIN32
  if(s->guiCreated)guiDestroy(p);
+#ifdef PRIMEEIGHT_USE_JUCE_SHIM
+ primeeightJuceBridgeDelete(s->juceBridge);
+#endif
 #endif
  delete s;}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
@@ -362,6 +470,20 @@ clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
  // CLAP constant_mask marks input channels represented by a single sample.
  // We always render complete output buffers, so clear their constant flags.
  out.constant_mask=0;
+ // Deliver GUI-originated parameter changes through the process output event stream
+ // when the host does not call params.flush while audio is running.
+#ifdef _WIN32
+ const uint32_t guiChanges=s->guiDirty.exchange(0,std::memory_order_acq_rel);
+ for(uint32_t i=0;i<parameterInfo.size();++i)if(guiChanges&(1u<<i)){
+  clap_event_param_value_t ev{};
+  ev.header.size=sizeof(ev);ev.header.time=0;
+  ev.header.space_id=CLAP_CORE_EVENT_SPACE_ID;ev.header.type=CLAP_EVENT_PARAM_VALUE;
+  ev.param_id=i;ev.value=canonical(i,s->guiPending[i].load(std::memory_order_relaxed));
+  if(block->out_events&&block->out_events->try_push&&block->out_events->try_push(block->out_events,&ev.header)){
+   s->published[i].store(ev.value,std::memory_order_relaxed);
+  }else s->guiDirty.fetch_or(1u<<i,std::memory_order_release);
+ }
+#endif
  s->synchronize();
  // Cache constant inputs before any output writes: in-place output may overwrite sample zero.
  const uint64_t constantMask=in->constant_mask & 3u;

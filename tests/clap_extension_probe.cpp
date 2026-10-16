@@ -31,7 +31,7 @@ int main(int argc,char** argv){
  assert(!gui->is_api_supported(p,CLAP_WINDOW_API_WIN32,true));
  assert(gui->create(p,CLAP_WINDOW_API_WIN32,false));
  uint32_t width=0,height=0;
- assert(gui->get_size(p,&width,&height) && width==420 && height==170);
+ assert(gui->get_size(p,&width,&height) && width==940 && height==490);
  assert(gui->hide(p));
  gui->destroy(p);
 #else
