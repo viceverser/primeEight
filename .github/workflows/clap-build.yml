@@ -92,3 +92,40 @@ jobs:
           name: PrimeEight-JUCE-Windows-Preview
           path: build-juce/**/PrimeEight JUCE Preview.exe
           if-no-files-found: error
+
+  juce-clap-experimental:
+    name: Experimental JUCE CLAP (Windows x64)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch JUCE and Surge CLAP shim
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch 8.0.10 https://github.com/juce-framework/JUCE.git vendor/juce
+          git clone https://github.com/surge-synthesizer/sst-clap-helpers.git vendor/sst-clap-helpers
+          git -C vendor/sst-clap-helpers checkout f17567a8166a50bfb50ddc9acca7e77c72e6096f
+      - name: Configure experimental plugin
+        shell: pwsh
+        run: |
+          cmake -S . -B build-juce-clap -G "Visual Studio 17 2022" -A x64 -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_BUILD_CLAP_JUCE_SHIM=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="$PWD/vendor/clap-main/include" -DPRIMEEIGHT_JUCE_DIR="$PWD/vendor/juce" -DPRIMEEIGHT_SST_CLAP_HELPERS_DIR="$PWD/vendor/sst-clap-helpers" 2>&1 | Tee-Object -FilePath juce-clap-configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build experimental plugin
+        shell: pwsh
+        run: |
+          cmake --build build-juce-clap --config Release --target PrimeEight_CLAP --parallel 2 2>&1 | Tee-Object -FilePath juce-clap-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload experimental build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrimeEight-Experimental-JUCE-CLAP-Logs
+          path: |
+            juce-clap-configure.log
+            juce-clap-build.log
+          if-no-files-found: warn
+      - name: Upload experimental JUCE CLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrimeEight-Experimental-JUCE-CLAP
+          path: build-juce-clap/**/PrimeEight_CLAP.clap
+          if-no-files-found: error
