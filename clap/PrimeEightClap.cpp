@@ -343,7 +343,6 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  if(!primeeightJuceGuiCreate(s->juceBridge,api,floating))return false;
  s->guiCreated=true;return true;
 #endif
- auto* s=self(p);
  trace("gui.create instance=%llu api=%s floating=%u",static_cast<unsigned long long>(s->serial),api?api:"(null)",unsigned(floating));
  if(s->guiCreated||!guiSupported(p,api,floating))return false;
  // The host supplies its parent later through set_parent(). Create a hidden
@@ -392,7 +391,6 @@ bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiParent(s->juceBridge,parent);
 #endif
- auto* s=self(p);
  trace("gui.set_parent instance=%llu api=%s",static_cast<unsigned long long>(s->serial),parent&&parent->api?parent->api:"(null)");
  if(!s->guiCreated||!s->guiWindow||!parent||!parent->api||
   std::strcmp(parent->api,CLAP_WINDOW_API_WIN32)||!parent->win32)return false;
