@@ -22,8 +22,6 @@ jobs:
         run: cmake -S . -B build-debug -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
       - name: Build Debug tests
         run: cmake --build build-debug --config Debug --parallel 2
-      - name: Run native Debug tests
-        run: ctest --test-dir build-debug -C Debug --output-on-failure
       - name: Configure distributable Release plugin
         shell: bash
         run: cmake -S . -B build-release -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
@@ -45,3 +43,5 @@ jobs:
           name: ${{ matrix.artifact }}
           path: build-release/**/PrimeEight_CLAP.clap
           if-no-files-found: error
+      - name: Run native Debug tests (bounded, verbose)
+        run: ctest --test-dir build-debug -C Debug --output-on-failure --verbose --timeout 60
