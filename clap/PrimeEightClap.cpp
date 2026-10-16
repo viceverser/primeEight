@@ -17,6 +17,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <windowsx.h>
 #endif
 
 namespace {
@@ -201,7 +202,8 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
   TextOutA(dc,28,20,"PRIMEEIGHT",10);
   SelectObject(dc,prev);DeleteObject(font);
   SetTextColor(dc,RGB(154,183,180));
-  TextOutA(dc,30,66,"DIGITAL DELAY  /  1x 2x 4x 8x",32);
+  const char* subtitle="DIGITAL DELAY  /  1x 2x 4x 8x";
+  TextOutA(dc,30,66,subtitle,int(std::strlen(subtitle)));
   for(int i=0;i<11;i++){
    int col=i/6,row=i%6;
    int x=controlX+col*386,y=controlY+row*62;
@@ -217,7 +219,8 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
     SetTextColor(dc,RGB(243,215,131));TextOutA(dc,x+230,y+8,val,int(std::strlen(val)));
    }
    SetTextColor(dc,RGB(139,156,155));
-   TextOutA(dc,x+12,y+31,"-   click left / right   +",26);
+   const char* hint="-   click left / right   +";
+   TextOutA(dc,x+12,y+31,hint,int(std::strlen(hint)));
   }
   EndPaint(hwnd,&ps);return 0;
  }
