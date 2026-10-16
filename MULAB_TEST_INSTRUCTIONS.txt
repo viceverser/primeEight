@@ -1,0 +1,10 @@
+PrimeEight v130 MuLab session diagnostic
+
+1. Build using GitHub Desktop as before: copy clap folder into repository, commit and push.
+2. Download green Windows CLAP artifact and replace installed plugin.
+3. Close MuLab and REAPER. Open Win+R, type %TEMP%, and delete PrimeEight_CLAP_Diagnostic.log.
+4. Start MuLab. Do NOT run a plugin rescan. Try inserting PrimeEight into a rack once.
+5. Close MuLab. Upload %TEMP%\PrimeEight_CLAP_Diagnostic.log here.
+
+Each log line now has a timestamp and thread marker, and each instance has an identifier.
+This allows distinguishing routine inspection from an actual load attempt.

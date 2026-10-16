@@ -12,6 +12,8 @@
 #include <new>
 #include <cstdarg>
 #include <mutex>
+#include <chrono>
+#include <thread>
 
 namespace {
 using namespace primeeight;
@@ -27,6 +29,10 @@ void trace(const char* fmt, ...){
  std::snprintf(path,sizeof(path),"%s\\PrimeEight_CLAP_Diagnostic.log",temp);
  FILE* file=std::fopen(path,"a");
  if(!file)return;
+ const auto now=std::chrono::system_clock::now().time_since_epoch();
+ const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+ const auto tid=std::hash<std::thread::id>{}(std::this_thread::get_id());
+ std::fprintf(file,"[%lld ms thread=%llu] ",static_cast<long long>(ms),static_cast<unsigned long long>(tid));
  va_list args;va_start(args,fmt);std::vfprintf(file,fmt,args);va_end(args);
  std::fputc('\n',file);std::fclose(file);
 }
@@ -35,6 +41,7 @@ constexpr const char* pluginId = "org.codeyvybez.primeeight";
 const char* features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, nullptr };
 const clap_plugin_descriptor_t descriptor = {CLAP_VERSION_INIT,pluginId,"PrimeEight","Codey Vybez","","","","0.100.0","Prime Time-inspired digital delay prototype",features};
 struct Instance {
+ uint64_t serial=0;
  clap_plugin_t plugin{};
  const clap_host_t* host{};
  std::unique_ptr<Processor> processor;
@@ -142,20 +149,20 @@ bool load(const clap_plugin_t* plugin,const clap_istream_t* stream){
  return true;
 }
 const clap_plugin_state_t state={save,load};
-bool init(const clap_plugin_t* p){trace("plugin.init -> true host=%s",self(p)->host&&self(p)->host->name?self(p)->host->name:"(null)");return true;}
-void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy active=%u processing=%u",unsigned(s->active),unsigned(s->processing));delete s;}
+bool init(const clap_plugin_t* p){trace("plugin.init instance=%llu -> true host=%s",static_cast<unsigned long long>(self(p)->serial),self(p)->host&&self(p)->host->name?self(p)->host->name:"(null)");return true;}
+void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy instance=%llu active=%u processing=%u",static_cast<unsigned long long>(s->serial),unsigned(s->active),unsigned(s->processing));delete s;}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
- trace("plugin.activate rate=%.2f min=%u max=%u",sampleRate,minFrames,maxFrames);
+ trace("plugin.activate instance=%llu rate=%.2f min=%u max=%u",static_cast<unsigned long long>(self(p)->serial),sampleRate,minFrames,maxFrames);
  auto* s=self(p);
  if(s->active||s->processing||!std::isfinite(sampleRate)||sampleRate<=0||maxFrames<minFrames||maxFrames>static_cast<uint32_t>(INT32_MAX))return false;
  s->sampleRate=sampleRate;s->maxFrames=maxFrames;
  auto next=std::make_unique<Processor>(sampleRate);
  for(uint32_t i=0;i<parameterInfo.size();++i)next->set(static_cast<Parameter>(i),s->published[i].load(std::memory_order_relaxed));
- s->processor=std::move(next);s->active=true;trace("plugin.activate -> true");return true;
+ s->processor=std::move(next);s->active=true;trace("plugin.activate instance=%llu -> true",static_cast<unsigned long long>(s->serial));return true;
 }
-void deactivate(const clap_plugin_t* p){trace("plugin.deactivate");auto* s=self(p);s->processing=false;s->active=false;s->maxFrames=0;}
-bool start(const clap_plugin_t* p){trace("plugin.start_processing");auto* s=self(p);if(!s->active||s->processing)return false;s->processing=true;return true;}
-void stop(const clap_plugin_t* p){trace("plugin.stop_processing");self(p)->processing=false;}
+void deactivate(const clap_plugin_t* p){trace("plugin.deactivate instance=%llu",static_cast<unsigned long long>(self(p)->serial));auto* s=self(p);s->processing=false;s->active=false;s->maxFrames=0;}
+bool start(const clap_plugin_t* p){trace("plugin.start_processing instance=%llu",static_cast<unsigned long long>(self(p)->serial));auto* s=self(p);if(!s->active||s->processing)return false;s->processing=true;return true;}
+void stop(const clap_plugin_t* p){trace("plugin.stop_processing instance=%llu",static_cast<unsigned long long>(self(p)->serial));self(p)->processing=false;}
 void reset(const clap_plugin_t* p){auto* s=self(p);if(s->active && s->processor)s->processor->reset();}
 
 clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
@@ -219,14 +226,14 @@ clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
  render(pos,block->frames_count);
  return CLAP_PROCESS_CONTINUE;
 }
-const void* extension(const clap_plugin_t*,const char* id){
+const void* extension(const clap_plugin_t* p,const char* id){
  const void* result=nullptr;
  if(id){
   if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))result=&ports;
   else if(!std::strcmp(id,CLAP_EXT_PARAMS))result=&params;
   else if(!std::strcmp(id,CLAP_EXT_STATE))result=&state;
  }
- trace("plugin.get_extension id=%s supported=%u",id?id:"(null)",unsigned(result!=nullptr));
+ trace("plugin.get_extension instance=%llu id=%s supported=%u",static_cast<unsigned long long>(self(p)->serial),id?id:"(null)",unsigned(result!=nullptr));
  return result;
 }
 void mainThread(const clap_plugin_t*){}
@@ -234,14 +241,15 @@ const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host
  trace("factory.create id=%s host=%s vendor=%s version=%s clap=%u.%u.%u",id?id:"(null)",host&&host->name?host->name:"(null)",host&&host->vendor?host->vendor:"(null)",host&&host->version?host->version:"(null)",host?host->clap_version.major:0,host?host->clap_version.minor:0,host?host->clap_version.revision:0);
  if(!host||!id||!clap_version_is_compatible(host->clap_version)||std::strcmp(id,pluginId))return nullptr;
  auto* s=new(std::nothrow) Instance(host);if(!s)return nullptr;
+ static std::atomic<uint64_t> nextSerial{1};s->serial=nextSerial.fetch_add(1,std::memory_order_relaxed);
  s->plugin.desc=&descriptor;s->plugin.plugin_data=s;
  s->plugin.init=init;s->plugin.destroy=destroy;s->plugin.activate=activate;s->plugin.deactivate=deactivate;
  s->plugin.start_processing=start;s->plugin.stop_processing=stop;s->plugin.reset=reset;s->plugin.process=process;
  s->plugin.get_extension=extension;s->plugin.on_main_thread=mainThread;
- trace("factory.create -> instance");return &s->plugin;
+ trace("factory.create -> instance=%llu",static_cast<unsigned long long>(s->serial));return &s->plugin;
 }
 uint32_t count(const clap_plugin_factory_t*){trace("factory.count");return 1;}
-const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){trace("factory.describe index=%u",index);return index==0?&descriptor:nullptr;}
+const clap_plugin_descriptor_t* describe(const clap_plugin_factory_t*,uint32_t index){trace("factory.describe index=%u id=%s features=audio-effect,stereo",index,pluginId);return index==0?&descriptor:nullptr;}
 const clap_plugin_factory_t factory={count,describe,create};
 bool entryInit(const char* path){trace("entry.init path=%s",path?path:"(null)");return true;}
 void entryDeinit(){trace("entry.deinit");}
