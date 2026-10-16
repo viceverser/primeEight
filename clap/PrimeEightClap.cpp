@@ -173,8 +173,10 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  auto* s=self(p);
  trace("gui.create instance=%llu api=%s floating=%u",static_cast<unsigned long long>(s->serial),api?api:"(null)",unsigned(floating));
  if(s->guiCreated||!guiSupported(p,api,floating))return false;
+ // The host supplies its parent later through set_parent(). Create a hidden
+ // top-level window first; Win32 rejects WS_CHILD with no parent.
  s->guiWindow=CreateWindowExA(0,"STATIC","PrimeEight - CLAP compatibility editor",
-  WS_CHILD|SS_CENTER|SS_CENTERIMAGE,0,0,int(guiWidth),int(guiHeight),
+  WS_POPUP|SS_CENTER|SS_CENTERIMAGE,0,0,int(guiWidth),int(guiHeight),
   nullptr,nullptr,GetModuleHandleA(nullptr),nullptr);
  if(!s->guiWindow){trace("gui.create Win32 error=%lu",GetLastError());return false;}
  s->guiCreated=true;s->guiFloating=false;return true;
@@ -205,10 +207,17 @@ bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
  HWND hwnd=static_cast<HWND>(parent->win32);
  if(!IsWindow(hwnd))return false;
  SetLastError(0);
+ // Win32 requires updating the window style when embedding a top-level HWND.
+ LONG_PTR style=GetWindowLongPtrA(s->guiWindow,GWL_STYLE);
+ SetWindowLongPtrA(s->guiWindow,GWL_STYLE,(style & ~WS_POPUP)|WS_CHILD);
+ SetLastError(0);
  HWND old=SetParent(s->guiWindow,hwnd);
- if(!old&&GetLastError()!=0){trace("gui.set_parent Win32 error=%lu",GetLastError());return false;}
+ if(!old&&GetLastError()!=0){
+  SetWindowLongPtrA(s->guiWindow,GWL_STYLE,style);
+  trace("gui.set_parent Win32 error=%lu",GetLastError());return false;
+ }
  SetWindowPos(s->guiWindow,nullptr,0,0,int(guiWidth),int(guiHeight),
-  SWP_NOZORDER|SWP_NOACTIVATE);
+  SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED);
  return true;
 }
 bool guiTransient(const clap_plugin_t*,const clap_window_t*){return false;}
