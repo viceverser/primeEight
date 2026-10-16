@@ -14,6 +14,10 @@
 #include <mutex>
 #include <chrono>
 #include <thread>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace {
 using namespace primeeight;
@@ -49,6 +53,11 @@ struct Instance {
  uint32_t maxFrames=0;
  bool active=false;
  bool processing=false;
+#ifdef _WIN32
+ HWND guiWindow=nullptr;
+ bool guiCreated=false;
+ bool guiFloating=false;
+#endif
  std::array<std::atomic<double>,parameterInfo.size()> published{};
  explicit Instance(const clap_host_t* h):host(h),processor(new Processor(48000)){
   for(size_t i=0;i<parameterInfo.size();++i)published[i].store(parameterInfo[i].initial,std::memory_order_relaxed);
@@ -149,8 +158,81 @@ bool load(const clap_plugin_t* plugin,const clap_istream_t* stream){
  return true;
 }
 const clap_plugin_state_t state={save,load};
+#ifdef _WIN32
+// Minimal native Win32 CLAP editor for MuLab host-compatibility diagnosis.
+// This is a real embeddable HWND, not a claimed GUI with no window.
+constexpr uint32_t guiWidth=420,guiHeight=170;
+bool guiSupported(const clap_plugin_t*,const char* api,bool floating){
+ return !floating && api && std::strcmp(api,CLAP_WINDOW_API_WIN32)==0;
+}
+bool guiPreferred(const clap_plugin_t*,const char** api,bool* floating){
+ if(!api||!floating)return false;
+ *api=CLAP_WINDOW_API_WIN32;*floating=false;return true;
+}
+bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
+ auto* s=self(p);
+ trace("gui.create instance=%llu api=%s floating=%u",static_cast<unsigned long long>(s->serial),api?api:"(null)",unsigned(floating));
+ if(s->guiCreated||!guiSupported(p,api,floating))return false;
+ s->guiWindow=CreateWindowExA(0,"STATIC","PrimeEight - CLAP compatibility editor",
+  WS_CHILD|SS_CENTER|SS_CENTERIMAGE,0,0,int(guiWidth),int(guiHeight),
+  nullptr,nullptr,GetModuleHandleA(nullptr),nullptr);
+ if(!s->guiWindow){trace("gui.create Win32 error=%lu",GetLastError());return false;}
+ s->guiCreated=true;s->guiFloating=false;return true;
+}
+void guiDestroy(const clap_plugin_t* p){
+ auto* s=self(p);trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
+ if(s->guiWindow)DestroyWindow(s->guiWindow);
+ s->guiWindow=nullptr;s->guiCreated=false;
+}
+bool guiScale(const clap_plugin_t*,double scale){return std::isfinite(scale)&&scale>0;}
+bool guiSize(const clap_plugin_t* p,uint32_t* w,uint32_t* h){
+ if(!self(p)->guiCreated||!w||!h)return false;
+ *w=guiWidth;*h=guiHeight;return true;
+}
+bool guiCanResize(const clap_plugin_t*){return false;}
+bool guiResizeHints(const clap_plugin_t*,clap_gui_resize_hints_t*){return false;}
+bool guiAdjust(const clap_plugin_t*,uint32_t* w,uint32_t* h){
+ if(!w||!h)return false;*w=guiWidth;*h=guiHeight;return true;
+}
+bool guiSetSize(const clap_plugin_t* p,uint32_t w,uint32_t h){
+ return self(p)->guiCreated&&w==guiWidth&&h==guiHeight;
+}
+bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
+ auto* s=self(p);
+ trace("gui.set_parent instance=%llu api=%s",static_cast<unsigned long long>(s->serial),parent&&parent->api?parent->api:"(null)");
+ if(!s->guiCreated||!s->guiWindow||!parent||!parent->api||
+  std::strcmp(parent->api,CLAP_WINDOW_API_WIN32)||!parent->win32)return false;
+ HWND hwnd=static_cast<HWND>(parent->win32);
+ if(!IsWindow(hwnd))return false;
+ SetLastError(0);
+ HWND old=SetParent(s->guiWindow,hwnd);
+ if(!old&&GetLastError()!=0){trace("gui.set_parent Win32 error=%lu",GetLastError());return false;}
+ SetWindowPos(s->guiWindow,nullptr,0,0,int(guiWidth),int(guiHeight),
+  SWP_NOZORDER|SWP_NOACTIVATE);
+ return true;
+}
+bool guiTransient(const clap_plugin_t*,const clap_window_t*){return false;}
+void guiTitle(const clap_plugin_t*,const char*){}
+bool guiShow(const clap_plugin_t* p){
+ auto* s=self(p);trace("gui.show instance=%llu",static_cast<unsigned long long>(s->serial));
+ if(!s->guiCreated||!s->guiWindow)return false;
+ ShowWindow(s->guiWindow,SW_SHOW);return true;
+}
+bool guiHide(const clap_plugin_t* p){
+ auto* s=self(p);trace("gui.hide instance=%llu",static_cast<unsigned long long>(s->serial));
+ if(!s->guiCreated||!s->guiWindow)return false;
+ ShowWindow(s->guiWindow,SW_HIDE);return true;
+}
+const clap_plugin_gui_t gui={guiSupported,guiPreferred,guiCreate,guiDestroy,
+ guiScale,guiSize,guiCanResize,guiResizeHints,guiAdjust,guiSetSize,
+ guiParent,guiTransient,guiTitle,guiShow,guiHide};
+#endif
 bool init(const clap_plugin_t* p){trace("plugin.init instance=%llu -> true host=%s",static_cast<unsigned long long>(self(p)->serial),self(p)->host&&self(p)->host->name?self(p)->host->name:"(null)");return true;}
-void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy instance=%llu active=%u processing=%u",static_cast<unsigned long long>(s->serial),unsigned(s->active),unsigned(s->processing));delete s;}
+void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy instance=%llu active=%u processing=%u",static_cast<unsigned long long>(s->serial),unsigned(s->active),unsigned(s->processing));
+#ifdef _WIN32
+ if(s->guiCreated)guiDestroy(p);
+#endif
+ delete s;}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
  trace("plugin.activate instance=%llu rate=%.2f min=%u max=%u",static_cast<unsigned long long>(self(p)->serial),sampleRate,minFrames,maxFrames);
  auto* s=self(p);
@@ -232,6 +314,9 @@ const void* extension(const clap_plugin_t* p,const char* id){
   if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))result=&ports;
   else if(!std::strcmp(id,CLAP_EXT_PARAMS))result=&params;
   else if(!std::strcmp(id,CLAP_EXT_STATE))result=&state;
+#ifdef _WIN32
+  else if(!std::strcmp(id,CLAP_EXT_GUI))result=&gui;
+#endif
  }
  trace("plugin.get_extension instance=%llu id=%s supported=%u",static_cast<unsigned long long>(self(p)->serial),id?id:"(null)",unsigned(result!=nullptr));
  return result;
