@@ -181,9 +181,27 @@ const clap_plugin_state_t state={save,load};
 #ifdef _WIN32
 // Minimal native Win32 CLAP editor for MuLab host-compatibility diagnosis.
 // This is a real embeddable HWND, not a claimed GUI with no window.
-constexpr uint32_t guiWidth=780,guiHeight=510;
-constexpr int controlX=28,controlY=110,controlW=344,controlH=58;
-const char* uiLabels[]={"MULTIPLY","TAP A TIME","TAP B TIME","TAP A LEVEL","TAP B LEVEL","FEEDBACK","MIX","REPEAT HOLD","MOD RATE","MOD DEPTH","SMOOTHING"};
+// Functional native editor based on the approved flat PrimeEight panel.
+constexpr uint32_t guiWidth=940,guiHeight=490;
+struct UiControl {int x,y,w,h;int param;const char* label;};
+constexpr UiControl uiControls[]={
+ {24,174,210,88,1,"TAP A TIME"}, {24,276,210,88,2,"TAP B TIME"},
+ {248,174,210,88,5,"FEEDBACK"}, {248,276,210,88,7,"REPEAT HOLD"},
+ {472,174,210,88,9,"MOD DEPTH"}, {472,276,210,88,8,"MOD RATE"},
+ {696,174,220,88,6,"MIX"}, {696,276,220,88,10,"SMOOTHING"},
+ {24,390,210,70,0,"MULTIPLY"}, {248,390,210,70,3,"TAP A LEVEL"},
+ {472,390,210,70,4,"TAP B LEVEL"}
+};
+void label(HDC dc,int x,int y,const char* t){TextOutA(dc,x,y,t,int(std::strlen(t)));}
+void drawPanel(HDC dc,int x,int y,int w,int h){
+ RECT r{x,y,x+w,y+h};HBRUSH fill=CreateSolidBrush(RGB(19,20,20));
+ FillRect(dc,&r,fill);DeleteObject(fill);
+ HPEN edge=CreatePen(PS_SOLID,1,RGB(113,109,102));
+ HGDIOBJ old=SelectObject(dc,edge);SelectObject(dc,GetStockObject(NULL_BRUSH));
+ Rectangle(dc,x,y,x+w,y+h);SelectObject(dc,old);DeleteObject(edge);
+ HPEN red=CreatePen(PS_SOLID,3,RGB(233,39,30));old=SelectObject(dc,red);
+ MoveToEx(dc,x+2,y+2,nullptr);LineTo(dc,x+w-2,y+2);SelectObject(dc,old);DeleteObject(red);
+}
 LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  auto* s=reinterpret_cast<Instance*>(GetWindowLongPtrA(hwnd,GWLP_USERDATA));
  if(msg==WM_NCCREATE){
@@ -194,43 +212,44 @@ LRESULT CALLBACK editorProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
  if(msg==WM_ERASEBKGND)return 1;
  if(msg==WM_PAINT){
   PAINTSTRUCT ps{};HDC dc=BeginPaint(hwnd,&ps);
-  RECT rect{};GetClientRect(hwnd,&rect);
-  HBRUSH bg=CreateSolidBrush(RGB(23,29,34));FillRect(dc,&rect,bg);DeleteObject(bg);
-  SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(235,228,204));
-  HFONT font=CreateFontA(34,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
-  HGDIOBJ prev=SelectObject(dc,font);
-  TextOutA(dc,28,20,"PRIMEEIGHT",10);
-  SelectObject(dc,prev);DeleteObject(font);
-  SetTextColor(dc,RGB(154,183,180));
-  const char* subtitle="DIGITAL DELAY  /  1x 2x 4x 8x";
-  TextOutA(dc,30,66,subtitle,int(std::strlen(subtitle)));
-  for(int i=0;i<11;i++){
-   int col=i/6,row=i%6;
-   int x=controlX+col*386,y=controlY+row*62;
-   if(col==1){row=i-6;y=controlY+row*62;}
-   RECT box{x,y,x+344,y+52};
-   HBRUSH fill=CreateSolidBrush(RGB(38,47,53));FillRect(dc,&box,fill);DeleteObject(fill);
-   SetTextColor(dc,RGB(186,205,204));TextOutA(dc,x+12,y+8,uiLabels[i],int(std::strlen(uiLabels[i])));
-   if(s){
-    double v=s->published[i].load(std::memory_order_relaxed);
-    char val[48];if(i==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
-    else if(i==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
-    else std::snprintf(val,sizeof(val),"%.2f",v);
-    SetTextColor(dc,RGB(243,215,131));TextOutA(dc,x+230,y+8,val,int(std::strlen(val)));
-   }
-   SetTextColor(dc,RGB(139,156,155));
-   const char* hint="-   click left / right   +";
-   TextOutA(dc,x+12,y+31,hint,int(std::strlen(hint)));
+  RECT r{};GetClientRect(hwnd,&r);
+  HBRUSH bg=CreateSolidBrush(RGB(14,15,15));FillRect(dc,&r,bg);DeleteObject(bg);
+  SetBkMode(dc,TRANSPARENT);
+  HFONT headline=CreateFontA(39,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
+  HGDIOBJ old=SelectObject(dc,headline);
+  SetTextColor(dc,RGB(232,218,195));label(dc,24,26,"Prime");
+  SetTextColor(dc,RGB(237,48,37));label(dc,140,26,"Eight");
+  SelectObject(dc,old);DeleteObject(headline);
+  SetTextColor(dc,RGB(184,182,175));label(dc,25,79,"A N A L O G   D E L A Y   P R O C E S S O R");
+  SetTextColor(dc,RGB(237,75,47));label(dc,695,31,"PRIMEEIGHT");
+  SetTextColor(dc,RGB(170,170,163));label(dc,695,55,"NATIVE CLAP EDITOR");
+  drawPanel(dc,24,112,892,48);
+  SetTextColor(dc,RGB(223,215,202));label(dc,39,127,"DELAY ENGINE");
+  SetTextColor(dc,RGB(239,73,42));label(dc,405,127,"1x     2x     4x     8x");
+  for(const auto& c:uiControls){
+   drawPanel(dc,c.x,c.y,c.w,c.h);
+   SetTextColor(dc,RGB(216,214,205));label(dc,c.x+12,c.y+13,c.label);
+   double v=s?s->published[c.param].load(std::memory_order_relaxed):parameterInfo[c.param].initial;
+   char val[64]{};
+   if(c.param==0)std::snprintf(val,sizeof(val),"%dx",1<<int(std::round(v)));
+   else if(c.param==7)std::snprintf(val,sizeof(val),"%s",v>=0.5?"ON":"OFF");
+   else if(c.param==1||c.param==2||c.param==9||c.param==10)std::snprintf(val,sizeof(val),"%.1f ms",v);
+   else if(c.param==8)std::snprintf(val,sizeof(val),"%.2f Hz",v);
+   else std::snprintf(val,sizeof(val),"%.2f",v);
+   HFONT valueFont=CreateFontA(24,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,0,0,"Arial");
+   old=SelectObject(dc,valueFont);SetTextColor(dc,RGB(246,72,43));
+   label(dc,c.x+12,c.y+37,val);
+   SelectObject(dc,old);DeleteObject(valueFont);
+   SetTextColor(dc,RGB(158,151,140));label(dc,c.x+c.w-80,c.y+c.h-22,"-     +");
   }
   EndPaint(hwnd,&ps);return 0;
  }
  if(msg==WM_LBUTTONDOWN||msg==WM_RBUTTONDOWN){
   if(!s)return 0;
   int x=GET_X_LPARAM(lp),y=GET_Y_LPARAM(lp);
-  int col=x>=414?1:0;
-  int idx=col*6+(y-controlY)/62;
-  int left=controlX+col*386;
-  if(y<controlY||idx>=11||x<left||x>=left+344||(y-controlY)%62>=52)return 0;
+  int idx=-1;
+  for(const auto& c:uiControls)if(x>=c.x&&x<c.x+c.w&&y>=c.y&&y<c.y+c.h){idx=c.param;break;}
+  if(idx<0)return 0;
   const auto& p=parameterInfo[idx];
   double v=s->published[idx].load(std::memory_order_relaxed);
   double step=(idx==0||idx==7)?1.0:(p.maximum-p.minimum)/100.0;
