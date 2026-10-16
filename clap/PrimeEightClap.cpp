@@ -337,6 +337,7 @@ bool guiPreferred(const clap_plugin_t*,const char** api,bool* floating){
  *api=CLAP_WINDOW_API_WIN32;*floating=false;return true;
 }
 bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
+ auto* s=self(p);
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  if(!s->juceBridge)s->juceBridge=primeeightJuceBridgeCreate();
  if(!primeeightJuceGuiCreate(s->juceBridge,api,floating))return false;
@@ -355,17 +356,19 @@ bool guiCreate(const clap_plugin_t* p,const char* api,bool floating){
  s->guiCreated=true;s->guiFloating=false;return true;
 }
 void guiDestroy(const clap_plugin_t* p){
+ auto* s=self(p);
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  primeeightJuceGuiDestroy(s->juceBridge);s->guiCreated=false;return;
 #endif
- auto* s=self(p);trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
+ trace("gui.destroy instance=%llu",static_cast<unsigned long long>(s->serial));
  if(s->guiWindow)DestroyWindow(s->guiWindow);
  s->guiWindow=nullptr;s->guiCreated=false;
 }
 bool guiScale(const clap_plugin_t* p,double scale){
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiScale(self(p)->juceBridge,scale);
-#endifreturn std::isfinite(scale)&&scale>0;}
+#endif
+return std::isfinite(scale)&&scale>0;}
 bool guiSize(const clap_plugin_t* p,uint32_t* w,uint32_t* h){
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiSize(self(p)->juceBridge,w,h);
@@ -385,6 +388,7 @@ bool guiSetSize(const clap_plugin_t* p,uint32_t w,uint32_t h){
  return self(p)->guiCreated&&w==guiWidth&&h==guiHeight;
 }
 bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
+ auto* s=self(p);
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiParent(s->juceBridge,parent);
 #endif
@@ -411,18 +415,20 @@ bool guiParent(const clap_plugin_t* p,const clap_window_t* parent){
 bool guiTransient(const clap_plugin_t*,const clap_window_t*){return false;}
 void guiTitle(const clap_plugin_t*,const char*){}
 bool guiShow(const clap_plugin_t* p){
+ auto* s=self(p);
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiShow(s->juceBridge);
 #endif
- auto* s=self(p);trace("gui.show instance=%llu",static_cast<unsigned long long>(s->serial));
+ trace("gui.show instance=%llu",static_cast<unsigned long long>(s->serial));
  if(!s->guiCreated||!s->guiWindow)return false;
  ShowWindow(s->guiWindow,SW_SHOW);return true;
 }
 bool guiHide(const clap_plugin_t* p){
+ auto* s=self(p);
 #ifdef PRIMEEIGHT_USE_JUCE_SHIM
  return primeeightJuceGuiHide(s->juceBridge);
 #endif
- auto* s=self(p);trace("gui.hide instance=%llu",static_cast<unsigned long long>(s->serial));
+ trace("gui.hide instance=%llu",static_cast<unsigned long long>(s->serial));
  if(!s->guiCreated||!s->guiWindow)return false;
  ShowWindow(s->guiWindow,SW_HIDE);return true;
 }
