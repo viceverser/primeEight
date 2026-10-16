@@ -158,3 +158,23 @@ if(PRIMEEIGHT_BUILD_CLAP)
   endif()
   add_test(NAME clap_extension_probe COMMAND primeeight_clap_extension_probe_test $<TARGET_FILE:PrimeEight_CLAP>)
 endif()
+
+# Optional JUCE editor preview. The existing CLAP plugin and DSP remain unchanged.
+# Pass -DPRIMEEIGHT_BUILD_JUCE_PREVIEW=ON -DPRIMEEIGHT_JUCE_DIR=<JUCE source checkout>
+# to validate the GUI toolchain independently before embedding it into CLAP.
+option(PRIMEEIGHT_BUILD_JUCE_PREVIEW "Build standalone JUCE vector editor preview" OFF)
+set(PRIMEEIGHT_JUCE_DIR "" CACHE PATH "JUCE source directory containing CMakeLists.txt")
+if(PRIMEEIGHT_BUILD_JUCE_PREVIEW)
+ if(NOT EXISTS "${PRIMEEIGHT_JUCE_DIR}/CMakeLists.txt")
+  message(FATAL_ERROR "JUCE source missing: set PRIMEEIGHT_JUCE_DIR to a JUCE checkout")
+ endif()
+ add_subdirectory("${PRIMEEIGHT_JUCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/juce")
+ juce_add_gui_app(PrimeEight_JUCE_Preview PRODUCT_NAME "PrimeEight JUCE Preview")
+ target_sources(PrimeEight_JUCE_Preview PRIVATE gui/JuceEditorPreview.cpp)
+ target_compile_features(PrimeEight_JUCE_Preview PRIVATE cxx_std_17)
+ target_compile_definitions(PrimeEight_JUCE_Preview PRIVATE
+  JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+ target_link_libraries(PrimeEight_JUCE_Preview PRIVATE
+  juce::juce_gui_extra juce::juce_recommended_config_flags
+  juce::juce_recommended_warning_flags)
+endif()
