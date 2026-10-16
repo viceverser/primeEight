@@ -25,7 +25,18 @@ int main(int argc,char** argv){
  assert(p->get_extension(p,CLAP_EXT_PARAMS));
  assert(p->get_extension(p,CLAP_EXT_AUDIO_PORTS));
  assert(p->get_extension(p,CLAP_EXT_STATE));
+#ifdef _WIN32
+ auto gui=(const clap_plugin_gui_t*)p->get_extension(p,CLAP_EXT_GUI);
+ assert(gui && gui->is_api_supported(p,CLAP_WINDOW_API_WIN32,false));
+ assert(!gui->is_api_supported(p,CLAP_WINDOW_API_WIN32,true));
+ assert(gui->create(p,CLAP_WINDOW_API_WIN32,false));
+ uint32_t width=0,height=0;
+ assert(gui->get_size(p,&width,&height) && width==420 && height==170);
+ assert(gui->hide(p));
+ gui->destroy(p);
+#else
  assert(p->get_extension(p,CLAP_EXT_GUI)==nullptr);
+#endif
  assert(p->get_extension(p,CLAP_EXT_NOTE_PORTS)==nullptr);
  p->destroy(p);entry->deinit();
 #ifdef _WIN32
