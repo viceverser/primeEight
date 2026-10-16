@@ -17,16 +17,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Configure
+      - name: Configure Debug tests
         shell: bash
-        run: cmake -S . -B build -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
-      - name: Build
-        run: cmake --build build --config Debug --parallel 2
-      - name: Run native tests
-        run: ctest --test-dir build -C Debug --output-on-failure
-      - name: Upload compiled CLAP directly
+        run: cmake -S . -B build-debug -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Debug
+      - name: Build Debug tests
+        run: cmake --build build-debug --config Debug --parallel 2
+      - name: Run native Debug tests
+        run: ctest --test-dir build-debug -C Debug --output-on-failure
+      - name: Configure distributable Release plugin
+        shell: bash
+        run: cmake -S . -B build-release -DPRIMEEIGHT_BUILD_CLAP=ON -DPRIMEEIGHT_CLAP_INCLUDE_DIR="${{ github.workspace }}/vendor/clap-main/include" -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - name: Build distributable Release plugin
+        run: cmake --build build-release --config Release --target PrimeEight_CLAP --parallel 2
+      - name: Verify Release plugin loads on build runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $plugin = Get-ChildItem -Path build-release -Recurse -Filter 'PrimeEight_CLAP.clap' | Select-Object -First 1
+          if (-not $plugin) { throw 'Release CLAP binary missing' }
+          $loader = Get-ChildItem -Path build-debug -Recurse -Filter 'primeeight_clap_windows_loading_test.exe' | Select-Object -First 1
+          if (-not $loader) { throw 'Windows loader test missing' }
+          & $loader.FullName $plugin.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Release CLAP failed native LoadLibrary test' }
+      - name: Upload Release CLAP plugin
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: build/**/PrimeEight_CLAP.clap
+          path: build-release/**/PrimeEight_CLAP.clap
           if-no-files-found: error

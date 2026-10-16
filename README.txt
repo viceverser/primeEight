@@ -1,11 +1,14 @@
-PrimeEight direct artifact upload fix
+PrimeEight Windows runtime fix
 
-Copy the .github folder into the root of your existing PrimeEight repository, replacing the workflow file.
-Do not copy README.txt.
+The previous workflow distributed a Debug build, which may require Microsoft's
+Debug C++ runtime libraries that ordinary Windows PCs do not have. This fix
+keeps Debug tests, but packages a separate Release CLAP using the static MSVC
+runtime (/MT). It also loads the Release plugin on the Windows CI runner.
 
-This removes the failing 'Stage platform-specific plugin' step entirely.
-GitHub Actions now uploads the compiled PrimeEight_CLAP.clap file directly from the build directory.
+Copy the .github folder into your local PrimeEight repository, replacing the
+existing workflow. In GitHub Desktop, commit with Summary:
+Fix Windows CLAP runtime dependencies
+Then Push origin. Download the NEW Windows artifact after the green build.
 
-GitHub Desktop summary: Fix direct Windows CLAP download
-Commit to main, then Push origin.
-Check Actions for the newest run and its PrimeEight-Windows-x64-CLAP artifact.
+NOTE: The precise missing DLL on the user's computer has not been independently
+identified; this fixes the most likely cause of Windows LoadLibrary error 126.
