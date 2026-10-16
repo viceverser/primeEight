@@ -126,7 +126,7 @@ bool init(const clap_plugin_t*){return true;}
 void destroy(const clap_plugin_t* p){delete self(p);}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
  auto* s=self(p);
- if(s->active||s->processing||!std::isfinite(sampleRate)||sampleRate<=0||minFrames==0||maxFrames<minFrames||maxFrames>static_cast<uint32_t>(INT32_MAX))return false;
+ if(s->active||s->processing||!std::isfinite(sampleRate)||sampleRate<=0||maxFrames<minFrames||maxFrames>static_cast<uint32_t>(INT32_MAX))return false;
  s->sampleRate=sampleRate;s->maxFrames=maxFrames;
  auto next=std::make_unique<Processor>(sampleRate);
  for(uint32_t i=0;i<parameterInfo.size();++i)next->set(static_cast<Parameter>(i),s->published[i].load(std::memory_order_relaxed));

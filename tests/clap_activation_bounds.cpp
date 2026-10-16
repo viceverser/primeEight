@@ -11,7 +11,7 @@ int main(int argc,char**argv){
  auto* factory=(const clap_plugin_factory_t*)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);assert(factory);
  clap_host_t host{};host.clap_version=CLAP_VERSION;host.name="activation bounds";host.vendor="test";host.url="";host.version="1";host.get_extension=ext;host.request_restart=noop;host.request_process=noop;host.request_callback=noop;
  auto* p=factory->create_plugin(factory,&host,factory->get_plugin_descriptor(factory,0)->id);assert(p&&p->init(p));
- assert(!p->activate(p,48000,0,64));assert(!p->activate(p,48000,128,64));assert(!p->activate(p,48000,1,0xffffffff));
+ assert(p->activate(p,48000,0,64));p->deactivate(p);assert(!p->activate(p,48000,128,64));assert(!p->activate(p,48000,1,0xffffffff));
  assert(p->activate(p,48000,1,64));assert(!p->activate(p,48000,1,64));assert(p->start_processing(p));
  float l[65]={},r[65]={},ol[65]={},orr[65]={};float* src[]={l,r};float* dst[]={ol,orr};
  clap_audio_buffer_t in{};in.data32=src;in.channel_count=2;
