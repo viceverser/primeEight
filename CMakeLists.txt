@@ -20,10 +20,29 @@ option(PRIMEEIGHT_BUILD_CLAP "Build CLAP adapter when official headers are insta
 option(PRIMEEIGHT_BUILD_VST3 "Build VST3 adapter when Steinberg SDK is installed" OFF)
 # Embed the original SVG path data without rasterisation or runtime asset files.
 # Generated header lives in the build tree; original source artwork is never changed.
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/GUI/assets/PrimeEight3.svg" PRIMEEIGHT_HEADING_SVG)
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/GUI/assets/ape8-Ligh.svg" PRIMEEIGHT_LIGHT_LOGO_SVG)
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/gui/PrimeEightEmbeddedArtwork.h.in"
-               "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h" @ONLY)
+# Generate short, adjacent C++ byte-string literals to stay below MSVC's
+# per-literal limit. The original SVG files remain untouched and vector-based.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h"
+  "#pragma once\n// SVGs embedded byte-for-byte from the original assets.\n")
+foreach(asset IN ITEMS "PrimeEight3.svg" "ape8-Ligh.svg")
+  if(asset STREQUAL "PrimeEight3.svg")
+    set(symbol primeEightHeadingSvg)
+  else()
+    set(symbol primeEightLightLogoSvg)
+  endif()
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/GUI/assets/${asset}" svg_hex HEX)
+  string(LENGTH "${svg_hex}" hex_length)
+  file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h"
+    "inline constexpr const char* ${symbol} =\n")
+  set(offset 0)
+  while(offset LESS hex_length)
+    string(SUBSTRING "${svg_hex}" ${offset} 8192 piece)
+    string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "\\\\x\\1" piece "${piece}")
+    file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h" "  \"${piece}\"\n")
+    math(EXPR offset "${offset} + 8192")
+  endwhile()
+  file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/PrimeEightEmbeddedArtwork.h" ";\n")
+endforeach()
 # Experimental Surge-team JUCE/CLAP shim toolchain. Deliberately opt-in:
 # the existing native Win32 CLAP remains the distributable plugin.
 option(PRIMEEIGHT_BUILD_CLAP_JUCE_SHIM "Build the experimental Surge CLAP/JUCE shim library" OFF)
