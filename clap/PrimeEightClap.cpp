@@ -142,8 +142,8 @@ bool load(const clap_plugin_t* plugin,const clap_istream_t* stream){
  return true;
 }
 const clap_plugin_state_t state={save,load};
-bool init(const clap_plugin_t*){trace("plugin.init -> true");return true;}
-void destroy(const clap_plugin_t* p){trace("plugin.destroy");delete self(p);}
+bool init(const clap_plugin_t* p){trace("plugin.init -> true host=%s",self(p)->host&&self(p)->host->name?self(p)->host->name:"(null)");return true;}
+void destroy(const clap_plugin_t* p){auto* s=self(p);trace("plugin.destroy active=%u processing=%u",unsigned(s->active),unsigned(s->processing));delete s;}
 bool activate(const clap_plugin_t* p,double sampleRate,uint32_t minFrames,uint32_t maxFrames){
  trace("plugin.activate rate=%.2f min=%u max=%u",sampleRate,minFrames,maxFrames);
  auto* s=self(p);
@@ -220,16 +220,18 @@ clap_process_status process(const clap_plugin_t* p,const clap_process_t* block){
  return CLAP_PROCESS_CONTINUE;
 }
 const void* extension(const clap_plugin_t*,const char* id){
- trace("plugin.get_extension %s",id?id:"(null)");
- if(!id)return nullptr;
- if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))return &ports;
- if(!std::strcmp(id,CLAP_EXT_PARAMS))return &params;
- if(!std::strcmp(id,CLAP_EXT_STATE))return &state;
- return nullptr;
+ const void* result=nullptr;
+ if(id){
+  if(!std::strcmp(id,CLAP_EXT_AUDIO_PORTS))result=&ports;
+  else if(!std::strcmp(id,CLAP_EXT_PARAMS))result=&params;
+  else if(!std::strcmp(id,CLAP_EXT_STATE))result=&state;
+ }
+ trace("plugin.get_extension id=%s supported=%u",id?id:"(null)",unsigned(result!=nullptr));
+ return result;
 }
 void mainThread(const clap_plugin_t*){}
 const clap_plugin_t* create(const clap_plugin_factory_t*,const clap_host_t* host,const char* id){
- trace("factory.create id=%s host=%s",id?id:"(null)",host&&host->name?host->name:"(null)");
+ trace("factory.create id=%s host=%s vendor=%s version=%s clap=%u.%u.%u",id?id:"(null)",host&&host->name?host->name:"(null)",host&&host->vendor?host->vendor:"(null)",host&&host->version?host->version:"(null)",host?host->clap_version.major:0,host?host->clap_version.minor:0,host?host->clap_version.revision:0);
  if(!host||!id||!clap_version_is_compatible(host->clap_version)||std::strcmp(id,pluginId))return nullptr;
  auto* s=new(std::nothrow) Instance(host);if(!s)return nullptr;
  s->plugin.desc=&descriptor;s->plugin.plugin_data=s;
