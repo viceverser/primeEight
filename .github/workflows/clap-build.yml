@@ -44,4 +44,20 @@ jobs:
           path: build-release/**/PrimeEight_CLAP.clap
           if-no-files-found: error
       - name: Run native Debug tests (bounded, verbose)
-        run: ctest --test-dir build-debug -C Debug --output-on-failure --verbose --timeout 60
+        shell: pwsh
+        run: |
+          ctest --test-dir build-debug -C Debug --output-on-failure --verbose --timeout 60 --output-log debug-ctest.log
+          $testExit = $LASTEXITCODE
+          Write-Host "CTest exit code: $testExit"
+          if (Test-Path debug-ctest.log) { Get-Content debug-ctest.log -Tail 120 }
+          exit $testExit
+      - name: Upload Debug test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-Debug-Diagnostics
+          path: |
+            debug-ctest.log
+            build-debug/Testing/Temporary/LastTest.log
+            build-debug/Testing/Temporary/LastTestsFailed.log
+          if-no-files-found: warn
