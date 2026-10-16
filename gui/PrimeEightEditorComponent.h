@@ -35,6 +35,21 @@ public:
         g.setColour(juce::Colour::fromRGB(240, 221, 198));
         g.setFont(juce::FontOptions(14.0f));
         g.drawText("DELAY ENGINE", 42, 177, 260, 25, juce::Justification::centredLeft);
+
+        // Interactive vector-only prototype controls; DSP binding follows host validation.
+        const char* labels[] = {"DELAY", "FEEDBACK", "MIX", "MOD"};
+        for (int i = 0; i < 4; ++i)
+        {
+            auto x = 105.0f + i * 215.0f;
+            auto y = 305.0f;
+            g.setColour(juce::Colour::fromRGB(97, 93, 87));
+            g.drawEllipse(x - 36.0f, y - 36.0f, 72.0f, 72.0f, 2.0f);
+            g.setColour(juce::Colour::fromRGB(240, 221, 198));
+            g.drawLine(x, y, x + 22.0f, y - 22.0f, 3.0f);
+            g.setFont(juce::FontOptions(13.0f));
+            g.drawText(labels[i], juce::Rectangle<float>(x - 65.0f, y + 50.0f, 130.0f, 25.0f),
+                       juce::Justification::centred);
+        }
     }
 private:
     std::unique_ptr<juce::Drawable> heading, logo;
