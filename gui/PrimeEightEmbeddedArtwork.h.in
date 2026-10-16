@@ -1,0 +1,4 @@
+#pragma once
+// Generated at CMake configure time from the untouched Inkscape source SVGs.
+inline constexpr const char* primeEightHeadingSvg = R"PE8HEADER(@PRIMEEIGHT_HEADING_SVG@)PE8HEADER";
+inline constexpr const char* primeEightLightLogoSvg = R"PE8LOGO(@PRIMEEIGHT_LIGHT_LOGO_SVG@)PE8LOGO";
