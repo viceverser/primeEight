@@ -1,0 +1,66 @@
+version: 1.0.{build}
+image: Visual Studio 2022
+platform: x64
+configuration: Release
+clone_depth: 1
+skip_tags: true
+
+environment:
+  matrix:
+    - BUILD_KIND: native
+    - BUILD_KIND: juce-preview
+    - BUILD_KIND: juce-clap
+
+install:
+  - ps: |
+      if ($env:BUILD_KIND -ne "native") {
+        git clone --depth 1 --branch 8.0.10 https://github.com/juce-framework/JUCE.git vendor/juce
+        if ($LASTEXITCODE -ne 0) { throw "JUCE checkout failed" }
+      }
+      if ($env:BUILD_KIND -eq "juce-clap") {
+        git clone https://github.com/surge-synthesizer/sst-clap-helpers.git vendor/sst-clap-helpers
+        if ($LASTEXITCODE -ne 0) { throw "Surge checkout failed" }
+        git -C vendor/sst-clap-helpers checkout f17567a8166a50bfb50ddc9acca7e77c72e6096f
+        if ($LASTEXITCODE -ne 0) { throw "Surge pinned checkout failed" }
+      }
+
+build_script:
+  - ps: |
+      New-Item -ItemType Directory -Force logs | Out-Null
+      $args = @("-S", ".", "-B", "build", "-G", "Visual Studio 17 2022", "-A", "x64")
+      if ($env:BUILD_KIND -eq "native") {
+        $args += @("-DPRIMEEIGHT_BUILD_CLAP=ON", "-DPRIMEEIGHT_CLAP_INCLUDE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/clap-main/include")
+        $target = "PrimeEight_CLAP"
+      } elseif ($env:BUILD_KIND -eq "juce-preview") {
+        $args += @("-DPRIMEEIGHT_BUILD_JUCE_PREVIEW=ON", "-DPRIMEEIGHT_JUCE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/juce")
+        $target = "PrimeEight_JUCE_Preview"
+      } else {
+        $args += @("-DPRIMEEIGHT_BUILD_CLAP=ON", "-DPRIMEEIGHT_BUILD_CLAP_JUCE_SHIM=ON", "-DPRIMEEIGHT_CLAP_INCLUDE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/clap-main/include", "-DPRIMEEIGHT_JUCE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/juce", "-DPRIMEEIGHT_SST_CLAP_HELPERS_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/sst-clap-helpers")
+        $target = "PrimeEight_CLAP"
+      }
+      & cmake @args 2>&1 | Tee-Object "logs/$env:BUILD_KIND-configure.log"
+      if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+      & cmake --build build --config Release --target $target --parallel 2 2>&1 | Tee-Object "logs/$env:BUILD_KIND-build.log"
+      if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
+      if ($env:BUILD_KIND -eq "native") {
+        & ctest --test-dir build -C Release --output-on-failure --timeout 60 2>&1 | Tee-Object "logs/native-ctest.log"
+        if ($LASTEXITCODE -ne 0) { throw "CTest failed" }
+        $plugin = Get-ChildItem build -Recurse -Filter PrimeEight_CLAP.clap | Select-Object -First 1
+        $loader = Get-ChildItem build -Recurse -Filter primeeight_clap_windows_loading_test.exe | Select-Object -First 1
+        if (!$plugin -or !$loader) { throw "CLAP or loader test missing" }
+        & $loader.FullName $plugin.FullName 2>&1 | Tee-Object "logs/native-load.log"
+        if ($LASTEXITCODE -ne 0) { throw "CLAP load failed" }
+      }
+
+after_build:
+  - ps: |
+      Get-ChildItem build -Recurse -File | Where-Object { $_.Name -eq 'PrimeEight_CLAP.clap' -or $_.Name -eq 'PrimeEight JUCE Preview.exe' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+      Get-ChildItem logs -File | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+
+on_failure:
+  - ps: |
+      Get-ChildItem logs -File -ErrorAction SilentlyContinue | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+      Get-ChildItem build/Testing/Temporary -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.log' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+
+test: off
+deploy: off
