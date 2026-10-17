@@ -30,7 +30,7 @@ build_script:
       $args = @("-S", ".", "-B", "build", "-G", "Visual Studio 17 2022", "-A", "x64")
       if ($env:BUILD_KIND -eq "native") {
         $args += @("-DPRIMEEIGHT_BUILD_CLAP=ON", "-DPRIMEEIGHT_CLAP_INCLUDE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/clap-main/include")
-        $target = "PrimeEight_CLAP"
+        $target = "all"
       } elseif ($env:BUILD_KIND -eq "juce-preview") {
         $args += @("-DPRIMEEIGHT_BUILD_JUCE_PREVIEW=ON", "-DPRIMEEIGHT_JUCE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/juce")
         $target = "PrimeEight_JUCE_Preview"
@@ -54,7 +54,7 @@ build_script:
 
 after_build:
   - ps: |
-      Get-ChildItem build -Recurse -File | Where-Object { $_.Name -eq 'PrimeEight_CLAP.clap' -or $_.Name -eq 'PrimeEight JUCE Preview.exe' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+      Get-ChildItem build -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'PrimeEight_CLAP.clap' -or $_.Name -eq 'PrimeEight JUCE Preview.exe' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
       Get-ChildItem logs -File | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
 
 on_failure:
