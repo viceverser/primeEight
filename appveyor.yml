@@ -30,7 +30,7 @@ build_script:
       $args = @("-S", ".", "-B", "build", "-G", "Visual Studio 17 2022", "-A", "x64")
       if ($env:BUILD_KIND -eq "native") {
         $args += @("-DPRIMEEIGHT_BUILD_CLAP=ON", "-DPRIMEEIGHT_CLAP_INCLUDE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/clap-main/include")
-        $target = "all"
+        $target = "ALL_BUILD"
       } elseif ($env:BUILD_KIND -eq "juce-preview") {
         $args += @("-DPRIMEEIGHT_BUILD_JUCE_PREVIEW=ON", "-DPRIMEEIGHT_JUCE_DIR=$env:APPVEYOR_BUILD_FOLDER/vendor/juce")
         $target = "PrimeEight_JUCE_Preview"
@@ -60,7 +60,9 @@ after_build:
 on_failure:
   - ps: |
       Get-ChildItem logs -File -ErrorAction SilentlyContinue | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
-      Get-ChildItem build/Testing/Temporary -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.log' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+      if (Test-Path 'build/Testing/Temporary') {
+        Get-ChildItem build/Testing/Temporary -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.log' } | ForEach-Object { Push-AppveyorArtifact $_.FullName -FileName "$env:BUILD_KIND-$($_.Name)" }
+      }
 
 test: off
 deploy: off
